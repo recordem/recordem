@@ -56,6 +56,9 @@ main { max-height: calc(100vh - 90px); overflow-y: auto; }
 details { margin-top: 12px; }
 summary { cursor: pointer; margin-bottom: 6px; }
 
-.perm { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid rgba(127,127,127,.18); }
-.perm .btn.small { padding: 4px 10px; font-size: 12px; white-space: nowrap; }
-.ok { color: #1e8e3e; white-space: nowrap; }
+.perm { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-bottom: 1px solid rgba(127,127,127,.18); }
+.perm-text { flex: 1; min-width: 0; }
+.perm-btn, .perm-state { flex: none; width: 112px; text-align: center; }
+.btn.perm-btn { padding: 5px 0; font-size: 12px; }
+.perm-state { font-size: 12px; font-weight: 600; }
+.ok { color: #1e8e3e; }

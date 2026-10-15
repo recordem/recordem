@@ -198,6 +198,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/recordings/{id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move a recording to another meeting, or to one of its own
+         * @description For a recording linked to the wrong meeting. The meeting it leaves is removed when nothing else is in it.
+         */
+        post: operations["moveRecording"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/recordings/{id}/stop": {
         parameters: {
             query?: never;
@@ -379,6 +399,13 @@ export interface components {
             app?: string | null;
             /** @description The meeting window's title (Meet puts the code there) */
             title?: string | null;
+        };
+        MoveRecording: {
+            /**
+             * Format: uuid
+             * @description Another meeting of the workspace; null → a meeting of its own
+             */
+            meeting_id: string | null;
         };
         FinalTranscript: {
             /** Format: date-time */
@@ -1070,6 +1097,59 @@ export interface operations {
             };
             /** @description Token lacks a required scope */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    moveRecording: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MoveRecording"];
+            };
+        };
+        responses: {
+            /** @description The recording, in its new meeting */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Recording"];
+                };
+            };
+            /** @description Missing or invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Token lacks a required scope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found in this workspace */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

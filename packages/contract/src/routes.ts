@@ -2,7 +2,7 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import {
   ContextRequest, CreateRecording, ErrorBody, FinalTranscript, LiveAck, LiveBatch, Match, Me, Meeting, MeetingDetail, Page,
-  Recording, StreamEvent, Transcript, Track, TrackUrl, UpdateMeeting,
+  Recording, StreamEvent, Transcript, Track, TrackUrl, UpdateMeeting, MoveRecording,
 } from "./schemas";
 import type { Scope } from "./scopes";
 
@@ -136,4 +136,13 @@ export const updateMeeting = createRoute({
   summary: "Change a meeting (its title)", ...needs("meetings:write"),
   request: { params: id, ...body(UpdateMeeting) },
   responses: { 200: json(Meeting, "The meeting"), ...errors, ...notFound },
+});
+
+export const moveRecording = createRoute({
+  method: "post", path: "/v1/recordings/{id}/move", operationId: "moveRecording", tags: ["recordings"],
+  summary: "Move a recording to another meeting, or to one of its own",
+  description: "For a recording linked to the wrong meeting. The meeting it leaves is removed when nothing else is in it.",
+  ...needs("meetings:write"),
+  request: { params: id, ...body(MoveRecording) },
+  responses: { 200: json(Recording, "The recording, in its new meeting"), ...errors, ...notFound },
 });

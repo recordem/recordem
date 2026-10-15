@@ -110,3 +110,7 @@ export const StreamEvent = z.object({
 export const UpdateMeeting = z.object({
   title: z.string().trim().max(200).nullable().optional().openapi({ description: "null clears it" }),
 }).openapi("UpdateMeeting");
+
+export const MoveRecording = z.object({
+  meeting_id: z.string().uuid().nullable().openapi({ description: "Another meeting of the workspace; null → a meeting of its own" }),
+}).openapi("MoveRecording");

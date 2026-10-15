@@ -495,6 +495,22 @@
           }
         }
       },
+      "MoveRecording": {
+        "type": "object",
+        "properties": {
+          "meeting_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Another meeting of the workspace; null → a meeting of its own"
+          }
+        },
+        "required": [
+          "meeting_id"
+        ]
+      },
       "FinalTranscript": {
         "type": "object",
         "properties": {
@@ -1649,6 +1665,89 @@
           },
           "403": {
             "description": "Token lacks a required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/recordings/{id}/move": {
+      "post": {
+        "operationId": "moveRecording",
+        "tags": [
+          "recordings"
+        ],
+        "summary": "Move a recording to another meeting, or to one of its own",
+        "description": "For a recording linked to the wrong meeting. The meeting it leaves is removed when nothing else is in it.",
+        "security": [
+          {
+            "oauth2": [
+              "meetings:write"
+            ]
+          }
+        ],
+        "x-scopes": [
+          "meetings:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoveRecording"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The recording, in its new meeting",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Recording"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token lacks a required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found in this workspace",
             "content": {
               "application/json": {
                 "schema": {

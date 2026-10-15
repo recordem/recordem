@@ -134,6 +134,17 @@ r = await call("GET", `/v1/meetings/${rec.meeting_id}`);
 const m = await r.json() as { call_key: string; ends_at: string | null; recordings: { transcript: string; tracks: unknown[] }[] };
 step("meeting with its recording", m.call_key === "meet:abc-defg-hij" && !!m.ends_at && m.recordings[0]?.transcript === "final" && m.recordings[0].tracks.length === 1, m);
 
+// moving: a second recording of the same meeting goes to a meeting of its own; the first meeting keeps the other one
+const rec2 = crypto.randomUUID();
+await call("POST", "/v1/recordings", { id: rec2, meeting_id: rec.meeting_id, started_at: new Date().toISOString() });
+r = await call("POST", `/v1/recordings/${rec2}/move`, { meeting_id: null });
+const mv = await r.json() as { meeting_id: string };
+step("move a recording to its own meeting", r.ok && mv.meeting_id !== rec.meeting_id);
+const left = await (await call("GET", `/v1/meetings/${rec.meeting_id}`)).json() as { recordings: unknown[] };
+step("the first meeting keeps its recording", left.recordings.length === 1);
+r = await call("POST", `/v1/recordings/${rec2}/move`, { meeting_id: rec.meeting_id });
+step("move back: the emptied meeting is gone", r.ok && (await call("GET", `/v1/meetings/${mv.meeting_id}`)).status === 404);
+
 // 8. another person, in their own workspace, sees none of it
 jar.clear();
 let res2 = await go(`${AUTH}/api/auth/oauth2/authorize?${q}`);

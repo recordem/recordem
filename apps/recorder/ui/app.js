@@ -3,6 +3,8 @@ const { invoke } = window.__TAURI__.core;
 const $view = document.getElementById("view");
 const $foot = document.getElementById("foot");
 let showSettings = false;
+let showPerms = false;   // Settings → Permissions
+let permsKey = "";       // what the permissions page shows, so the refresh only redraws on a change
 let last = "";       // the last rendered phase, so typing in a form isn't wiped by the poll
 let selected = null; // the meeting id picked in the "detected" list ("" = a new meeting)
 
@@ -18,7 +20,7 @@ const run = async (cmd, args) => {
   tick(true);
 };
 
-document.getElementById("gear").onclick = () => { showSettings = !showSettings; tick(true); };
+document.getElementById("gear").onclick = () => { showSettings = !(showSettings || showPerms); showPerms = false; tick(true); };
 
 async function settings(first) {
   const c = await invoke("get_config");
@@ -90,7 +92,54 @@ async function settings(first) {
     } catch (e) { document.getElementById("err").textContent = e; }
   };
   document.getElementById("cancel").onclick = () => { showSettings = false; tick(true); };
-  document.getElementById("perms").onclick = async (e) => { e.preventDefault(); showSettings = false; await invoke("show_permissions"); tick(true); };
+  document.getElementById("perms").onclick = (e) => { e.preventDefault(); showSettings = false; showPerms = true; permsKey = ""; tick(true); };
+}
+
+const PERMS = {
+  microphone: ["Microphone", "Your voice."],
+  system_audio: ["System audio", "The call's audio: the other participants."],
+  accessibility: ["Accessibility", "Reads the meeting window's title (the call's name and code), so recordings land on the right meeting."],
+  automation: ["Browser", "Reads the meeting tab's link (Meet, Zoom or Teams on the web)."],
+};
+
+/** One row per permission: what it's for, and its state or the one action that moves it forward. */
+function permRows(items) {
+  return items.map((i) => {
+    const [name, why] = PERMS[i.id];
+    const action =
+      i.status === "granted" ? `<span class="perm-state ok">Allowed</span>`
+      : i.status === "denied" ? `<button class="btn ghost perm-btn" data-open="${i.id}">Open Settings</button>`
+      : i.status === "unknown" ? `<span class="perm-state muted">Open a browser</span>`
+      : `<button class="btn ghost perm-btn" data-perm="${i.id}">Allow</button>`;
+    const hint = i.id === "accessibility" && i.status === "denied"
+      ? `<br><span class="small muted">Already on there? Turn Recordem off and on again: a new build needs it anew.</span>` : "";
+    return `<div class="perm"><div class="perm-text"><strong>${name}</strong>${i.required ? "" : ` <span class="small muted">recommended</span>`}
+      <br><span class="small muted">${why}</span>${hint}</div>${action}</div>`;
+  }).join("");
+}
+
+/** Settings → Permissions: every permission, refreshed while open (they change in System Settings). */
+async function permissionsPage() {
+  const items = await invoke("permission_list");
+  const key = JSON.stringify(items);
+  if (key === permsKey) return;
+  permsKey = key;
+  $view.innerHTML = `
+    <h2>Permissions</h2>
+    <p class="muted small">What this Mac lets Recordem do.</p>
+    ${permRows(items)}
+    <div class="row" style="margin-top:12px"><button class="btn ghost" id="perms-back">Back</button><span></span></div>`;
+  bindPerms();
+  document.getElementById("perms-back").onclick = () => { showPerms = false; showSettings = true; permsKey = ""; tick(true); };
+}
+
+function bindPerms() {
+  for (const b of $view.querySelectorAll("[data-perm]")) b.onclick = async () => {
+    b.disabled = true;
+    try { await invoke("request_permission", { id: b.dataset.perm }); } catch (e) { alert(e); }
+    permsKey = ""; tick(true);
+  };
+  for (const b of $view.querySelectorAll("[data-open]")) b.onclick = () => invoke("open_permission", { id: b.dataset.open });
 }
 
 function render(s) {
@@ -106,25 +155,12 @@ function render(s) {
         ${busy ? "" : `<button class="btn" data-cmd="download_models">Download</button>`}`;
     }
     case "permissions": {
-      const label = {
-        microphone: ["Microphone", "Your voice."],
-        system_audio: ["System audio", "The call's audio: the other participants."],
-        accessibility: ["Accessibility", "Reads the meeting window's title, which has the call code, so recordings land on the right meeting."],
-        automation: ["Browser automation", "Reads the meeting tab's link (Meet, Zoom, Teams on the web). Open a browser first."],
-        notifications: ["Notifications", "\u201cRecording\u201d and \u201cTranscript sent\u201d."],
-      };
-      const state = { granted: "✓ Allowed", denied: "Not allowed", not_asked: "", unknown: "" };
-      const ready = s.items.filter((i) => i.required).every((i) => i.status === "granted");
+      const ready = s.items.every((i) => i.status === "granted");
       return `
-        <h2>Permissions</h2>
-        <p class="muted small">macOS asks for each of these once. The first two are needed to record.</p>
-        ${s.items.map((i) => `
-          <div class="perm">
-            <div><strong>${label[i.id][0]}</strong>${i.required ? "" : ` <span class="small muted">optional</span>`}
-              <br><span class="small muted">${label[i.id][1]}</span></div>
-            ${i.status === "granted" ? `<span class="small ok">${state.granted}</span>`
-              : `<button class="btn ghost small" data-perm="${i.id}">${i.status === "denied" ? "Open Settings" : "Allow"}</button>`}
-          </div>`).join("")}
+        <h2>Allow recording</h2>
+        <p class="muted small">macOS asks for these once. Both are needed to record a call.</p>
+        ${permRows(s.items)}
+        <p class="small muted" style="margin-top:10px">More (recommended) in Settings → Permissions.</p>
         <div class="row" style="margin-top:12px"><span></span><button class="btn" id="perm-done" ${ready ? "" : "disabled"}>Continue</button></div>`;
     }
     case "idle":
@@ -176,6 +212,7 @@ function render(s) {
 }
 
 async function tick(force) {
+  if (showPerms) { await permissionsPage(); return; }
   if (showSettings) { if (force) settings(false); return; }
   const s = await invoke("status");
   if (s.phase === "setup") { if (last !== "setup" || force) { last = "setup"; settings(true); } return; }
@@ -191,11 +228,7 @@ async function tick(force) {
   $view.innerHTML = render(s);
   for (const b of $view.querySelectorAll("[data-cmd]")) b.onclick = () => run(b.dataset.cmd, {});
   for (const r of $view.querySelectorAll("input[name=meeting]")) r.onchange = () => { selected = r.value; };
-  for (const b of $view.querySelectorAll("[data-perm]")) b.onclick = async () => {
-    b.disabled = true;
-    try { await invoke("request_permission", { id: b.dataset.perm }); } catch (e) { alert(e); }
-    tick(true);
-  };
+  bindPerms();
   const done = document.getElementById("perm-done");
   if (done) done.onclick = () => run("finish_onboarding", {});
   const go = document.getElementById("go");

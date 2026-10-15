@@ -79,7 +79,7 @@ struct Meta {
 enum Phase {
     Setup,
     Models { done: u64, total: u64, error: Option<String> },
-    /// What macOS must allow, each with its status (filled in by `status`).
+    /// The required permissions, each with its status (filled in by `status`). The others are in Settings.
     Permissions { items: Vec<permissions::Item> },
     Idle,
     Detected { call: Call, matches: Option<Vec<Match>>, error: Option<String> },
@@ -272,7 +272,7 @@ struct Status {
 }
 
 #[tauri::command]
-fn status(app: AppHandle, state: State<'_, Shared>) -> Status {
+fn status(state: State<'_, Shared>) -> Status {
     let inner = state.inner.lock().unwrap();
     let mut phase = inner.phase.clone().unwrap_or_else(|| resting(&config::load()));
     // Idle again with a required permission gone (revoked in System Settings): back to the permissions step.
@@ -280,7 +280,7 @@ fn status(app: AppHandle, state: State<'_, Shared>) -> Status {
         phase = Phase::Permissions { items: vec![] };
     }
     match &mut phase {
-        Phase::Permissions { items } => *items = permissions::all(&app),
+        Phase::Permissions { items } => *items = permissions::all().into_iter().filter(|i| i.required).collect(),
         Phase::Models { done, .. } => *done = state.model_bytes.load(Ordering::Relaxed),
         Phase::Processing { progress, step, .. } if step == "transcribing" => *progress = state.progress.load(Ordering::Relaxed),
         _ => {}
@@ -481,8 +481,14 @@ async fn download_models(app: AppHandle) -> Result<(), String> {
 
 /// Asks macOS for one permission (its prompt, or its pane in System Settings once refused).
 #[tauri::command]
-async fn request_permission(app: AppHandle, id: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || permissions::request(&app, &id)).await.map_err(|e| e.to_string())
+async fn request_permission(id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || permissions::request(&id)).await.map_err(|e| e.to_string())
+}
+
+/// Every permission with its status, for Settings → Permissions.
+#[tauri::command]
+fn permission_list() -> Vec<permissions::Item> {
+    permissions::all()
 }
 
 #[tauri::command]
@@ -501,11 +507,6 @@ fn finish_onboarding(app: AppHandle) -> Result<(), String> {
     config::save(&c).map_err(|e| e.to_string())?;
     set_phase(&app, resting(&c));
     Ok(())
-}
-
-#[tauri::command]
-fn show_permissions(app: AppHandle) {
-    set_phase(&app, Phase::Permissions { items: vec![] });
 }
 
 /// "Record now" without a detected call, or the detector's call: ask the API what it is.
@@ -1039,7 +1040,7 @@ pub fn run() {
                 let _ = w.hide();
             }
         })
-        .invoke_handler(tauri::generate_handler![status, get_config, save_config, login, logout, download_models, lookup, start, stop, toggle_mute, dismiss, show_main, open, open_live, version, request_permission, open_permission, finish_onboarding, show_permissions])
+        .invoke_handler(tauri::generate_handler![status, get_config, save_config, login, logout, download_models, lookup, start, stop, toggle_mute, dismiss, show_main, open, open_live, version, request_permission, open_permission, permission_list, finish_onboarding])
         .run(tauri::generate_context!())
         .expect("error while running the recorder");
 }

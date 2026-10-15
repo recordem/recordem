@@ -4,7 +4,7 @@ import type { MeetingDetail, Recording, Segment, Transcript } from "@recordem/sd
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { callApp, clock, day, duration, speakerName, time } from "./format";
-import { link } from "./router";
+import { link, navigate } from "./router";
 
 export function MeetingPage({ id }: { id: string }) {
   const [meeting, setMeeting] = useState<MeetingDetail | null>(null);
@@ -17,6 +17,12 @@ export function MeetingPage({ id }: { id: string }) {
   }, [id]);
   useEffect(() => { void load(); }, [load]);
 
+  // A recording linked to the wrong meeting becomes a meeting of its own; the page follows it.
+  const split = async (recordingId: string) => {
+    const { data, error } = await api.POST("/v1/recordings/{id}/move", { params: { path: { id: recordingId } }, body: { meeting_id: null } });
+    if (error) setError(error.message); else navigate(`/m/${data.meeting_id}`);
+  };
+
   if (error) return <Frame><p className="error">{error}</p></Frame>;
   if (!meeting) return <Frame><p className="muted">Loading…</p></Frame>;
   const rec = meeting.recordings.find((r) => r.id === pick) ?? meeting.recordings.at(-1);
@@ -28,11 +34,12 @@ export function MeetingPage({ id }: { id: string }) {
         <p className="muted">
           {[day(new Date(meeting.starts_at)), time(meeting.starts_at), duration(meeting.starts_at, meeting.ends_at), callApp(meeting.call_key)].filter(Boolean).join(" · ")}
         </p>
-        {meeting.recordings.length > 1 && (
+        {meeting.recordings.length > 1 && rec && (
           <div className="tabs">
-            {meeting.recordings.map((r, i) => (
-              <button key={r.id} className={r.id === rec?.id ? "" : "ghost"} onClick={() => setPick(r.id)}>Recording {i + 1}</button>
+            {meeting.recordings.map((r) => (
+              <button key={r.id} className={r.id === rec.id ? "" : "ghost"} onClick={() => setPick(r.id)}>{time(r.started_at)}</button>
             ))}
+            <button className="ghost small split" onClick={() => split(rec.id)} title="This recording is another call">Move to its own meeting</button>
           </div>
         )}
       </div>

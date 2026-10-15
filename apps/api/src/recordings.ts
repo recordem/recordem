@@ -68,7 +68,8 @@ export function mount(app: OpenAPIHono<Env>, db: Db) {
     const now = (m: (typeof near)[number]) =>
       m.startsAt.getTime() - SLACK_MS <= at.getTime() && at.getTime() <= (m.endsAt ?? new Date(m.startsAt.getTime() + 2 * 3600_000)).getTime();
     const byLink = key ? near.filter((m) => m.callKey === key) : [];
-    const byTime = near.filter((m) => !byLink.includes(m) && m.createdBy === a.subject && now(m));
+    // A meeting with another call's link is another call, whatever the time.
+    const byTime = near.filter((m) => !byLink.includes(m) && m.createdBy === a.subject && now(m) && !(key && m.callKey && m.callKey !== key));
     const match = (m: (typeof near)[number], matched_by: "link" | "time") =>
       ({ meeting_id: m.id, title: m.title, starts_at: m.startsAt.toISOString(), matched_by });
     return c.json({ matches: [...byLink.map((m) => match(m, "link")), ...byTime.map((m) => match(m, "time"))] }, 200);
@@ -98,6 +99,35 @@ export function mount(app: OpenAPIHono<Env>, db: Db) {
     }).returning();
     await publish(a.workspace, { type: "recording.created", meeting_id: meetingId, recording_id: r.id, data: {} });
     return c.json(await full(r), 200);
+  });
+
+  app.openapi(routes.moveRecording, async (c) => {
+    const a = c.get("actor");
+    const r = await recording(a, c.req.valid("param").id, true);
+    const to = c.req.valid("json").meeting_id;
+    const moved = await db.transaction(async (tx) => {
+      let target = to;
+      if (target) {
+        const [m] = await tx.select({ id: meetings.id }).from(meetings).where(and(eq(meetings.id, target), eq(meetings.workspaceId, a.workspace)));
+        if (!m) throw notFound("meeting");
+      } else {
+        const [m] = await tx.insert(meetings).values({
+          workspaceId: a.workspace, startsAt: r.startedAt, endsAt: r.endedAt, createdBy: a.subject,
+        }).returning({ id: meetings.id });
+        target = m.id;
+      }
+      const [u] = await tx.update(recordings).set({ meetingId: target }).where(eq(recordings.id, r.id)).returning();
+      // The meeting it left: gone if empty, else its span follows the recordings still in it.
+      const left = await tx.select().from(recordings).where(eq(recordings.meetingId, r.meetingId));
+      if (!left.length) await tx.delete(meetings).where(eq(meetings.id, r.meetingId));
+      else await tx.update(meetings).set({
+        startsAt: new Date(Math.min(...left.map((x) => x.startedAt.getTime()))),
+        endsAt: left.every((x) => x.endedAt) ? new Date(Math.max(...left.map((x) => x.endedAt!.getTime()))) : null,
+      }).where(eq(meetings.id, r.meetingId));
+      return u;
+    });
+    await publish(a.workspace, { type: "recording.created", meeting_id: moved.meetingId, recording_id: moved.id, data: {} });
+    return c.json(await full(moved), 200);
   });
 
   app.openapi(routes.getRecording, async (c) => c.json(await full(await recording(c.get("actor"), c.req.valid("param").id)), 200));

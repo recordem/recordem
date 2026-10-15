@@ -1,10 +1,10 @@
-// What macOS must allow before the recorder can do its job, checked and asked for in one place (the onboarding step
-// after signing in, and Settings → Permissions):
+// What macOS must allow before the recorder can do its job, checked and asked for in one place. The onboarding step
+// after signing in asks for the required ones; Settings → Permissions lists them all:
 //   microphone      your voice                                   required
 //   system_audio    the call's audio (Core Audio tap)            required
 //   accessibility   the meeting window's title (the call code)   recommended: links recordings to meetings by link
 //   automation      the call's URL from the browser tab          recommended: the full link, not just the code
-//   notifications   "Recording", "Transcript sent"               optional
+// (Notifications aren't listed: on macOS the notification plugin can't tell whether they're allowed.)
 use serde::Serialize;
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -64,9 +64,19 @@ fn request_system_audio() {
     }
 }
 
+/// Accessibility has no "denied": not trusted is all macOS says. Once its prompt was shown (this run), the next step is
+/// System Settings — also when the switch there is already on for an older build of the app, which no longer counts.
 pub fn accessibility() -> Status {
-    if macos_accessibility_client::accessibility::application_is_trusted() { Status::Granted } else { Status::NotAsked }
+    if macos_accessibility_client::accessibility::application_is_trusted() {
+        Status::Granted
+    } else if ASKED_AX.load(std::sync::atomic::Ordering::Relaxed) {
+        Status::Denied
+    } else {
+        Status::NotAsked
+    }
 }
+
+static ASKED_AX: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// The browsers whose tabs the recorder reads for the call's link (AppleScript): those running now.
 pub const BROWSERS: &[(&str, &str)] = &[
@@ -77,32 +87,45 @@ pub const BROWSERS: &[(&str, &str)] = &[
     ("com.apple.Safari", "Safari"),
 ];
 
-fn running(bundle_id: &str) -> bool {
-    std::process::Command::new("/usr/bin/pgrep").args(["-f", &format!("{}.app/Contents/MacOS", app_name(bundle_id).unwrap_or(bundle_id))]).output().map(|o| o.status.success()).unwrap_or(false)
+#[repr(C)]
+struct AEDesc {
+    descriptor_type: u32,
+    data_handle: *mut std::ffi::c_void,
 }
 
-fn app_name(bundle_id: &str) -> Option<&'static str> {
-    BROWSERS.iter().find(|(id, _)| *id == bundle_id).map(|(_, n)| *n)
+#[link(name = "CoreServices", kind = "framework")]
+unsafe extern "C" {
+    fn AECreateDesc(type_code: u32, data: *const std::ffi::c_void, size: isize, result: *mut AEDesc) -> i16;
+    fn AEDisposeDesc(desc: *mut AEDesc) -> i16;
+    fn AEDeterminePermissionToAutomateTarget(target: *const AEDesc, event_class: u32, event_id: u32, ask: u8) -> i32;
 }
 
-/// Automation of the first running browser: asking it something harmless shows the prompt the first time, and an
-/// error -1743 means it was refused.
-fn automation_probe() -> Status {
-    let Some((id, _)) = BROWSERS.iter().find(|(id, _)| running(id)) else { return Status::Unknown };
-    match std::process::Command::new("/usr/bin/osascript").args(["-e", &format!("tell application id \"{id}\" to count windows")]).output() {
-        Ok(o) if o.status.success() => Status::Granted,
-        Ok(o) if String::from_utf8_lossy(&o.stderr).contains("-1743") => Status::Denied,
-        _ => Status::Unknown,
+const TYPE_BUNDLE_ID: u32 = u32::from_be_bytes(*b"bund");
+const WILDCARD: u32 = u32::from_be_bytes(*b"****");
+
+/// May this app send Apple Events to `bundle_id`? With `ask`, macOS shows its prompt when it never asked before
+/// (blocks until answered). Not running → Unknown: macOS can only tell for a running app.
+fn automate(bundle_id: &str, ask: bool) -> Status {
+    let mut desc = AEDesc { descriptor_type: 0, data_handle: std::ptr::null_mut() };
+    let err = unsafe { AECreateDesc(TYPE_BUNDLE_ID, bundle_id.as_ptr().cast(), bundle_id.len() as isize, &mut desc) };
+    if err != 0 {
+        return Status::Unknown;
+    }
+    let r = unsafe { AEDeterminePermissionToAutomateTarget(&desc, WILDCARD, WILDCARD, ask as u8) };
+    unsafe { AEDisposeDesc(&mut desc) };
+    match r {
+        0 => Status::Granted,
+        -1743 => Status::Denied,  // errAEEventNotPermitted
+        -1744 => Status::NotAsked, // errAEEventWouldRequireUserConsent
+        _ => Status::Unknown,      // procNotFound (-600): not running
     }
 }
 
-pub fn notifications(app: &tauri::AppHandle) -> Status {
-    use tauri_plugin_notification::{NotificationExt, PermissionState};
-    match app.notification().permission_state() {
-        Ok(PermissionState::Granted) => Status::Granted,
-        Ok(PermissionState::Denied) => Status::Denied,
-        _ => Status::NotAsked,
-    }
+/// Automation, for the browsers that are running: granted if any of them allows it (the one with the call is what
+/// matters, and people use one), else the first one's answer.
+pub fn automation() -> Status {
+    let all: Vec<Status> = BROWSERS.iter().map(|(id, _)| automate(id, false)).filter(|s| *s != Status::Unknown).collect();
+    if all.contains(&Status::Granted) { Status::Granted } else { all.first().copied().unwrap_or(Status::Unknown) }
 }
 
 /// The required ones: without them a recording is silence.
@@ -110,23 +133,19 @@ pub fn ready() -> bool {
     microphone() == Status::Granted && system_audio() == Status::Granted
 }
 
-/// Automation's status is only known by asking the browser, which itself prompts the first time: remembered here
-/// between checks so the list doesn't prompt on every refresh.
-static AUTOMATION: std::sync::Mutex<Status> = std::sync::Mutex::new(Status::Unknown);
-
-pub fn all(app: &tauri::AppHandle) -> Vec<Item> {
+/// All of them, required first.
+pub fn all() -> Vec<Item> {
     vec![
         Item { id: "microphone", status: microphone(), required: true },
         Item { id: "system_audio", status: system_audio(), required: true },
         Item { id: "accessibility", status: accessibility(), required: false },
-        Item { id: "automation", status: *AUTOMATION.lock().unwrap(), required: false },
-        Item { id: "notifications", status: notifications(app), required: false },
+        Item { id: "automation", status: automation(), required: false },
     ]
 }
 
 /// Shows the system prompt; when macOS won't ask again (refused before), opens the right pane of System Settings.
-pub fn request(app: &tauri::AppHandle, id: &str) {
-    let before = all(app).into_iter().find(|i| i.id == id).map(|i| i.status);
+pub fn request(id: &str) {
+    let before = all().into_iter().find(|i| i.id == id).map(|i| i.status);
     if before == Some(Status::Denied) {
         open_settings(id);
         return;
@@ -135,18 +154,17 @@ pub fn request(app: &tauri::AppHandle, id: &str) {
         "microphone" => request_microphone(),
         "system_audio" => request_system_audio(),
         "accessibility" => {
+            ASKED_AX.store(true, std::sync::atomic::Ordering::Relaxed);
             macos_accessibility_client::accessibility::application_is_trusted_with_prompt();
         }
         "automation" => {
-            let s = automation_probe();
-            *AUTOMATION.lock().unwrap() = s;
-            if s == Status::Denied {
-                open_settings(id);
+            // The prompt for the first running browser that hasn't been answered yet.
+            for (b, _) in BROWSERS {
+                if automate(b, false) == Status::NotAsked {
+                    automate(b, true);
+                    break;
+                }
             }
-        }
-        "notifications" => {
-            use tauri_plugin_notification::NotificationExt;
-            let _ = app.notification().request_permission();
         }
         _ => {}
     }
@@ -160,10 +178,6 @@ pub fn open_settings(id: &str) {
         "automation" => "Privacy_Automation",
         _ => "",
     };
-    let url = if id == "notifications" {
-        "x-apple.systempreferences:com.apple.Notifications-Settings.extension".to_string()
-    } else {
-        format!("x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?{anchor}")
-    };
+    let url = format!("x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?{anchor}");
     let _ = std::process::Command::new("/usr/bin/open").arg(url).status();
 }
