@@ -24,7 +24,7 @@ export function MeetingPage({ id }: { id: string }) {
   return (
     <Frame>
       <div className="meeting-head">
-        <h1>{meeting.title || "Untitled meeting"}</h1>
+        <Title meeting={meeting} onSaved={(m) => setMeeting({ ...meeting, ...m })} />
         <p className="muted">
           {[day(new Date(meeting.starts_at)), time(meeting.starts_at), duration(meeting.starts_at, meeting.ends_at), callApp(meeting.call_key)].filter(Boolean).join(" · ")}
         </p>
@@ -38,6 +38,32 @@ export function MeetingPage({ id }: { id: string }) {
       </div>
       {rec ? <RecordingView key={rec.id} rec={rec} onChange={load} /> : <p className="muted">No recording for this meeting yet.</p>}
     </Frame>
+  );
+}
+
+/** The title, edited in place: click it, type, Enter (or leave the field) saves, Escape cancels. */
+function Title({ meeting, onSaved }: { meeting: MeetingDetail; onSaved: (m: Partial<MeetingDetail>) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const save = async (value: string) => {
+    setEditing(false);
+    const title = value.trim() || null;
+    if (title === meeting.title) return;
+    const { data, error } = await api.PATCH("/v1/meetings/{id}", { params: { path: { id: meeting.id } }, body: { title } });
+    if (error) setError(error.message); else { setError(null); onSaved({ title: data.title }); }
+  };
+  if (editing) {
+    return (
+      <input className="title-input" autoFocus defaultValue={meeting.title ?? ""} placeholder="Untitled meeting" maxLength={200}
+        onBlur={(e) => save(e.currentTarget.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") setEditing(false); }} />
+    );
+  }
+  return (
+    <>
+      <h1 className="title" title="Rename" onClick={() => setEditing(true)}>{meeting.title || <span className="muted">Untitled meeting</span>}</h1>
+      {error && <p className="error small">{error}</p>}
+    </>
   );
 }
 

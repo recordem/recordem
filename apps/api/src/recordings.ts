@@ -41,6 +41,18 @@ export function mount(app: OpenAPIHono<Env>, db: Db) {
     return c.json({ ...meetingView(m), recordings: await Promise.all(rs.map(full)) }, 200);
   });
 
+  app.openapi(routes.updateMeeting, async (c) => {
+    const a = c.get("actor");
+    const b = c.req.valid("json");
+    const set = b.title === undefined ? {} : { title: b.title || null };
+    const where = and(eq(meetings.id, c.req.valid("param").id), eq(meetings.workspaceId, a.workspace));
+    const [m] = Object.keys(set).length
+      ? await db.update(meetings).set(set).where(where).returning()
+      : await db.select().from(meetings).where(where);
+    if (!m) throw notFound("meeting");
+    return c.json(meetingView(m), 200);
+  });
+
   app.openapi(routes.meetingContext, async (c) => {
     const a = c.get("actor");
     const b = c.req.valid("json");
@@ -51,8 +63,10 @@ export function mount(app: OpenAPIHono<Env>, db: Db) {
       lte(meetings.startsAt, new Date(at.getTime() + NEAR_MS)),
       sql`coalesce(${meetings.endsAt}, ${meetings.startsAt} + interval '2 hours') >= ${new Date(at.getTime() - NEAR_MS).toISOString()}::timestamptz`,
     )).orderBy(sql`abs(extract(epoch from ${meetings.startsAt} - ${at.toISOString()}::timestamptz))`);
+    // By time: a meeting of yours going on now. One that already ended (a past recording) doesn't attract a new
+    // call just because it was minutes ago; the same call link still does, above.
     const now = (m: (typeof near)[number]) =>
-      m.startsAt.getTime() - SLACK_MS <= at.getTime() && at.getTime() <= (m.endsAt ?? new Date(m.startsAt.getTime() + 2 * 3600_000)).getTime() + SLACK_MS;
+      m.startsAt.getTime() - SLACK_MS <= at.getTime() && at.getTime() <= (m.endsAt ?? new Date(m.startsAt.getTime() + 2 * 3600_000)).getTime();
     const byLink = key ? near.filter((m) => m.callKey === key) : [];
     const byTime = near.filter((m) => !byLink.includes(m) && m.createdBy === a.subject && now(m));
     const match = (m: (typeof near)[number], matched_by: "link" | "time") =>

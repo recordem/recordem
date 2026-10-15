@@ -106,3 +106,7 @@ export const StreamEvent = z.object({
   recording_id: z.string().uuid(),
   data: z.record(z.string(), z.unknown()).openapi({ description: "transcript.live: {from, segments}; track.ready: Track; others: {}" }),
 }).openapi("StreamEvent");
+
+export const UpdateMeeting = z.object({
+  title: z.string().trim().max(200).nullable().optional().openapi({ description: "null clears it" }),
+}).openapi("UpdateMeeting");

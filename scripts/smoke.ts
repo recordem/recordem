@@ -128,6 +128,8 @@ step("SSE got track.ready", events.some((e) => e.type === "track.ready"));
 r = await call("POST", `/v1/recordings/${recId}/stop`);
 step("stop after the end is a no-op", r.ok);
 await reader.cancel(); void ready;
+r = await call("PATCH", `/v1/meetings/${rec.meeting_id}`, { title: "Weekly sync, renamed" });
+step("rename the meeting", r.ok && (await r.json()).title === "Weekly sync, renamed");
 r = await call("GET", `/v1/meetings/${rec.meeting_id}`);
 const m = await r.json() as { call_key: string; ends_at: string | null; recordings: { transcript: string; tracks: unknown[] }[] };
 step("meeting with its recording", m.call_key === "meet:abc-defg-hij" && !!m.ends_at && m.recordings[0]?.transcript === "final" && m.recordings[0].tracks.length === 1, m);

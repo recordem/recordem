@@ -2,15 +2,17 @@
 // call is, records mic + system audio (and your own voice at 48 kHz), transcribes on this Mac and delivers the text,
 // then the audio (AAC).
 //
-// Phases: setup → models → idle ⇄ detected → recording → processing → done | failed → idle.
+// Phases: setup → models → permissions → idle ⇄ detected → recording → processing → done | failed → idle.
 // A recording that couldn't be transcribed or sent stays in recordings/<id>/ and is resumed when the app opens.
 mod api;
+mod callurl;
 mod capture;
 mod config;
 mod live;
 mod models;
 mod mute;
 mod oauth;
+mod permissions;
 mod transcribe;
 
 use api::{Match, Transcript};
@@ -77,6 +79,8 @@ struct Meta {
 enum Phase {
     Setup,
     Models { done: u64, total: u64, error: Option<String> },
+    /// What macOS must allow, each with its status (filled in by `status`).
+    Permissions { items: Vec<permissions::Item> },
     Idle,
     Detected { call: Call, matches: Option<Vec<Match>>, error: Option<String> },
     Recording { id: String, started_at: String, title: Option<String>, app_name: Option<String>, live: bool },
@@ -250,6 +254,8 @@ fn resting(cfg: &config::Config) -> Phase {
         Phase::Setup
     } else if !models::ready() {
         Phase::Models { done: 0, total: models::total(), error: None }
+    } else if !cfg.onboarded || !permissions::ready() {
+        Phase::Permissions { items: vec![] }
     } else {
         Phase::Idle
     }
@@ -266,10 +272,15 @@ struct Status {
 }
 
 #[tauri::command]
-fn status(state: State<'_, Shared>) -> Status {
+fn status(app: AppHandle, state: State<'_, Shared>) -> Status {
     let inner = state.inner.lock().unwrap();
     let mut phase = inner.phase.clone().unwrap_or_else(|| resting(&config::load()));
+    // Idle again with a required permission gone (revoked in System Settings): back to the permissions step.
+    if matches!(phase, Phase::Idle) && !permissions::ready() {
+        phase = Phase::Permissions { items: vec![] };
+    }
     match &mut phase {
+        Phase::Permissions { items } => *items = permissions::all(&app),
         Phase::Models { done, .. } => *done = state.model_bytes.load(Ordering::Relaxed),
         Phase::Processing { progress, step, .. } if step == "transcribing" => *progress = state.progress.load(Ordering::Relaxed),
         _ => {}
@@ -458,7 +469,7 @@ async fn download_models(app: AppHandle) -> Result<(), String> {
     set_phase(&app, Phase::Models { done: 0, total: models::total(), error: None });
     match models::download(st.model_bytes.clone()).await {
         Ok(()) => {
-            set_phase(&app, Phase::Idle);
+            set_phase(&app, resting(&config::load()));
             Ok(())
         }
         Err(e) => {
@@ -466,6 +477,35 @@ async fn download_models(app: AppHandle) -> Result<(), String> {
             Err(e.to_string())
         }
     }
+}
+
+/// Asks macOS for one permission (its prompt, or its pane in System Settings once refused).
+#[tauri::command]
+async fn request_permission(app: AppHandle, id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || permissions::request(&app, &id)).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn open_permission(id: String) {
+    permissions::open_settings(&id);
+}
+
+/// "Continue" on the permissions step (the required ones granted); also how Settings reopens the step.
+#[tauri::command]
+fn finish_onboarding(app: AppHandle) -> Result<(), String> {
+    if !permissions::ready() {
+        return Err("the microphone and system audio permissions are needed to record".into());
+    }
+    let mut c = config::load();
+    c.onboarded = true;
+    config::save(&c).map_err(|e| e.to_string())?;
+    set_phase(&app, resting(&c));
+    Ok(())
+}
+
+#[tauri::command]
+fn show_permissions(app: AppHandle) {
+    set_phase(&app, Phase::Permissions { items: vec![] });
 }
 
 /// "Record now" without a detected call, or the detector's call: ask the API what it is.
@@ -512,7 +552,7 @@ async fn start(app: AppHandle, meeting_id: Option<String>) -> Result<(), String>
         _ => (Call { app_id: None, app_name: None, app: None, title: None, url: None }, vec![]),
     };
     let picked = meeting_id.as_ref().and_then(|id| matches.into_iter().find(|m| &m.meeting_id == id));
-    let title = picked.as_ref().and_then(|m| m.title.clone()).or_else(|| call.title.clone());
+    let title = picked.as_ref().and_then(|m| m.title.clone()).or_else(|| call.title.as_deref().and_then(callurl::meaningful_title));
     let cfg = config::load();
     let meta = Meta {
         id: uuid::Uuid::new_v4().to_string(),
@@ -843,10 +883,24 @@ fn on_detect(app: &AppHandle, ev: anlg_detect::DetectEvent) {
                 return;
             }
             let (title, platform) = inspect(&a.id);
-            let call = Call { app_id: Some(a.id.clone()), app_name: Some(a.name.clone()), app: platform.or(kind.map(String::from)), title, url: None };
+            let mut call = Call { app_id: Some(a.id.clone()), app_name: Some(a.name.clone()), app: platform.or(kind.map(String::from)), title, url: None };
             show_prompt(app);
             let app2 = app.clone();
+            let browser = kind.is_none();
             tauri::async_runtime::spawn(async move {
+                // In a browser, the meeting tab has the call's whole link (and sometimes its name).
+                if browser {
+                    let id = a.id.clone();
+                    if let Ok(Some((url, tab))) = tauri::async_runtime::spawn_blocking(move || callurl::find(&id)).await {
+                        call.app = call.app.or_else(|| {
+                            if url.contains("meet.google.com") { Some("google_meet".into()) }
+                            else if url.contains("zoom.us") { Some("zoom".into()) }
+                            else { Some("microsoft_teams".into()) }
+                        });
+                        call.title = call.title.or(Some(tab));
+                        call.url = Some(url);
+                    }
+                }
                 let _ = detected(app2, Some(call), true).await;
             });
         }
@@ -985,7 +1039,7 @@ pub fn run() {
                 let _ = w.hide();
             }
         })
-        .invoke_handler(tauri::generate_handler![status, get_config, save_config, login, logout, download_models, lookup, start, stop, toggle_mute, dismiss, show_main, open, open_live, version])
+        .invoke_handler(tauri::generate_handler![status, get_config, save_config, login, logout, download_models, lookup, start, stop, toggle_mute, dismiss, show_main, open, open_live, version, request_permission, open_permission, finish_onboarding, show_permissions])
         .run(tauri::generate_context!())
         .expect("error while running the recorder");
 }

@@ -69,6 +69,7 @@ async function settings(first) {
       <span>Open when I log in to this Mac</span></label>
     <label class="opt small" style="margin:6px 0 12px"><input id="keep" type="checkbox" ${c.keep_audio ? "checked" : ""}>
       <span>Keep a copy of the audio on this Mac too</span></label>
+    <p class="small"><a href="#" id="perms">Permissions…</a></p>
     ${addresses}
     <p id="err" class="error"></p>
     <div class="row"><button class="btn ghost" id="cancel">Back</button><button class="btn" id="save">Save</button></div>`;
@@ -89,6 +90,7 @@ async function settings(first) {
     } catch (e) { document.getElementById("err").textContent = e; }
   };
   document.getElementById("cancel").onclick = () => { showSettings = false; tick(true); };
+  document.getElementById("perms").onclick = async (e) => { e.preventDefault(); showSettings = false; await invoke("show_permissions"); tick(true); };
 }
 
 function render(s) {
@@ -102,6 +104,28 @@ function render(s) {
         ${busy ? `<div class="bar"><i style="width:${pct}%"></i></div><p class="small muted">${mb(s.done)} of ${mb(s.total)}</p>` : ""}
         ${s.error ? `<p class="error">${esc(s.error)}</p>` : ""}
         ${busy ? "" : `<button class="btn" data-cmd="download_models">Download</button>`}`;
+    }
+    case "permissions": {
+      const label = {
+        microphone: ["Microphone", "Your voice."],
+        system_audio: ["System audio", "The call's audio: the other participants."],
+        accessibility: ["Accessibility", "Reads the meeting window's title, which has the call code, so recordings land on the right meeting."],
+        automation: ["Browser automation", "Reads the meeting tab's link (Meet, Zoom, Teams on the web). Open a browser first."],
+        notifications: ["Notifications", "\u201cRecording\u201d and \u201cTranscript sent\u201d."],
+      };
+      const state = { granted: "✓ Allowed", denied: "Not allowed", not_asked: "", unknown: "" };
+      const ready = s.items.filter((i) => i.required).every((i) => i.status === "granted");
+      return `
+        <h2>Permissions</h2>
+        <p class="muted small">macOS asks for each of these once. The first two are needed to record.</p>
+        ${s.items.map((i) => `
+          <div class="perm">
+            <div><strong>${label[i.id][0]}</strong>${i.required ? "" : ` <span class="small muted">optional</span>`}
+              <br><span class="small muted">${label[i.id][1]}</span></div>
+            ${i.status === "granted" ? `<span class="small ok">${state.granted}</span>`
+              : `<button class="btn ghost small" data-perm="${i.id}">${i.status === "denied" ? "Open Settings" : "Allow"}</button>`}
+          </div>`).join("")}
+        <div class="row" style="margin-top:12px"><span></span><button class="btn" id="perm-done" ${ready ? "" : "disabled"}>Continue</button></div>`;
     }
     case "idle":
       return `
@@ -167,6 +191,13 @@ async function tick(force) {
   $view.innerHTML = render(s);
   for (const b of $view.querySelectorAll("[data-cmd]")) b.onclick = () => run(b.dataset.cmd, {});
   for (const r of $view.querySelectorAll("input[name=meeting]")) r.onchange = () => { selected = r.value; };
+  for (const b of $view.querySelectorAll("[data-perm]")) b.onclick = async () => {
+    b.disabled = true;
+    try { await invoke("request_permission", { id: b.dataset.perm }); } catch (e) { alert(e); }
+    tick(true);
+  };
+  const done = document.getElementById("perm-done");
+  if (done) done.onclick = () => run("finish_onboarding", {});
   const go = document.getElementById("go");
   if (go) go.onclick = () => {
     const pick = (s.matches ?? []).find((x) => x.meeting_id === selected);

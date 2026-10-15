@@ -55,3 +55,7 @@ main { max-height: calc(100vh - 90px); overflow-y: auto; }
 #ver { padding: 0 16px 10px; margin: 0; }
 details { margin-top: 12px; }
 summary { cursor: pointer; margin-bottom: 6px; }
+
+.perm { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid rgba(127,127,127,.18); }
+.perm .btn.small { padding: 4px 10px; font-size: 12px; white-space: nowrap; }
+.ok { color: #1e8e3e; white-space: nowrap; }

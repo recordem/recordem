@@ -8,6 +8,8 @@
     <string>Records the call's audio (the other participants). The transcript and audio go to your Recordem server.</string>
     <key>NSLocalNetworkUsageDescription</key>
     <string>Connects to your Recordem server when it runs on your local network.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Reads the link of the meeting tab in your browser, so the recording lands on the right meeting.</string>
     <key>LSUIElement</key>
     <false/>
   </dict>

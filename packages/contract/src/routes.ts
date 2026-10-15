@@ -2,7 +2,7 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import {
   ContextRequest, CreateRecording, ErrorBody, FinalTranscript, LiveAck, LiveBatch, Match, Me, Meeting, MeetingDetail, Page,
-  Recording, StreamEvent, Transcript, Track, TrackUrl,
+  Recording, StreamEvent, Transcript, Track, TrackUrl, UpdateMeeting,
 } from "./schemas";
 import type { Scope } from "./scopes";
 
@@ -129,4 +129,11 @@ export const stream = createRoute({
   ...needs("meetings:read"),
   request: { query: z.object({ recording_id: z.string().uuid().optional() }) },
   responses: { 200: { content: { "text/event-stream": { schema: StreamEvent } }, description: "The event stream" }, ...errors },
+});
+
+export const updateMeeting = createRoute({
+  method: "patch", path: "/v1/meetings/{id}", operationId: "updateMeeting", tags: ["meetings"],
+  summary: "Change a meeting (its title)", ...needs("meetings:write"),
+  request: { params: id, ...body(UpdateMeeting) },
+  responses: { 200: json(Meeting, "The meeting"), ...errors, ...notFound },
 });

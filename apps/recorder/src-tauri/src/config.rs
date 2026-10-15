@@ -50,6 +50,9 @@ pub struct Config {
     /// Extra words for Whisper (one per line).
     #[serde(default)]
     pub vocabulary: String,
+    /// The permissions step was seen through once (it comes back by itself if a required permission goes missing).
+    #[serde(default)]
+    pub onboarded: bool,
 }
 
 /// Where the server lives; a build for a deployment sets RECORDEM_API_URL / RECORDEM_AUTH_URL / RECORDEM_WEB_URL.

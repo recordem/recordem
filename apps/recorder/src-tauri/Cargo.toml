@@ -21,6 +21,13 @@ anlg-detect = { git = "https://github.com/fastrepl/anarlog", rev = "10dca7e1b240
 # Telling the voices on the other side apart (pyannote segmentation + WeSpeaker embeddings, both built into the binary,
 # ~32 MB), on the Neural Engine through CoreML: ~50 s for 20 min of call.
 anlg-pyannote = { git = "https://github.com/fastrepl/anarlog", rev = "10dca7e1b24058f1bd9cba4107ac1fd5588c974c", package = "pyannote-local", features = ["coreml"] }
+# Permission status and prompts for onboarding (permissions.rs). System audio has no public status API: Anarlog's tcc
+# crate (MIT) reads it through TCC. Microphone through AVFoundation; Accessibility through ApplicationServices.
+anlg-tcc = { git = "https://github.com/fastrepl/anarlog", rev = "10dca7e1b24058f1bd9cba4107ac1fd5588c974c", package = "tcc" }
+objc2 = "0.6"
+block2 = "0.6"
+objc2-av-foundation = { version = "0.3", default-features = false, features = ["std", "AVCaptureDevice", "AVMediaFormat", "block2"] }
+macos-accessibility-client = "0.0.1"
 # Reading the call app's mute button (mute.rs): only RunningApp, to find its process; already built for anlg-detect.
 cidre = { version = "0.15", default-features = false, features = ["app"] }
 

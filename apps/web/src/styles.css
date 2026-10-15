@@ -87,3 +87,6 @@ button:disabled { opacity: 0.45; cursor: default; }
 .transcript .ts:not(:disabled):hover { color: var(--fg); text-decoration: underline; }
 .transcript p { grid-column: 2; margin: 0; }
 .transcript li:not(.cont) .ts { grid-row: 2; }
+.meeting-head h1.title { cursor: text; border-radius: 6px; margin-left: -6px; padding: 0 6px; }
+.meeting-head h1.title:hover { background: var(--soft); }
+.title-input { font: inherit; font-size: 26px; font-weight: 700; letter-spacing: -0.01em; width: 100%; margin: 0 0 4px -6px; padding: 0 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--fg); }

@@ -115,24 +115,49 @@ pub fn read(p: &Path) -> anyhow::Result<Vec<f32>> {
     Ok(r.samples::<i16>().map(|s| s.map(|v| v as f32 / i16::MAX as f32)).collect::<Result<_, _>>()?)
 }
 
-/// Both channels mixed to one track and encoded as AAC (.m4a, ~14 MB per hour) with macOS's own encoder: what the
-/// web app plays. Made once; the mix WAV in between is removed.
+/// Both channels mixed to one track, encoded as AAC with macOS's own encoder: what the portal plays. With the
+/// high-quality voice track, the mix is made at 48 kHz from it (the other side, captured at 16 kHz, upsampled), 96 kbps,
+/// ~43 MB per hour: your voice sounds like you. Without it, the 16 kHz channels at 32 kbps (~14 MB per hour). Made
+/// once; the mix WAV in between is removed. Whisper never reads this file, only the 16 kHz WAVs.
 pub fn call_m4a(dir: &Path) -> anyhow::Result<PathBuf> {
     let out = dir.join("call.m4a");
     if out.exists() {
         return Ok(out);
     }
     let f = files(dir);
-    let (mic, sys) = (read(&f.mic)?, read(&f.system)?);
+    let sys = read(&f.system)?;
+    let hq = if f.mic_hq.exists() && std::fs::metadata(&f.mic_hq)?.len() > 44 { Some(read(&f.mic_hq)?) } else { None };
     let mix_path = dir.join("mix.wav");
-    let mut w = writer(&mix_path)?;
-    let mixed: Vec<f32> = (0..mic.len().max(sys.len()))
-        .map(|i| mic.get(i).copied().unwrap_or(0.0) + sys.get(i).copied().unwrap_or(0.0))
-        .collect();
-    write(&mut w, &mixed)?;
-    w.finalize()?;
+    let (rate, bitrate) = match &hq {
+        Some(mic) => {
+            const K: usize = (HQ_RATE / RATE) as usize;
+            // Linear interpolation is enough: the other side carries nothing above 8 kHz anyway.
+            let up = |i: usize| -> f32 {
+                let (j, frac) = (i / K, (i % K) as f32 / K as f32);
+                let a = sys.get(j).copied().unwrap_or(0.0);
+                let b = sys.get(j + 1).copied().unwrap_or(a);
+                a + (b - a) * frac
+            };
+            let mut w = writer_at(&mix_path, HQ_RATE)?;
+            let n = mic.len().max(sys.len() * K);
+            let mixed: Vec<f32> = (0..n).map(|i| mic.get(i).copied().unwrap_or(0.0) + up(i)).collect();
+            write(&mut w, &mixed)?;
+            w.finalize()?;
+            ("aac@48000", "96000")
+        }
+        None => {
+            let mic = read(&f.mic)?;
+            let mut w = writer(&mix_path)?;
+            let mixed: Vec<f32> = (0..mic.len().max(sys.len()))
+                .map(|i| mic.get(i).copied().unwrap_or(0.0) + sys.get(i).copied().unwrap_or(0.0))
+                .collect();
+            write(&mut w, &mixed)?;
+            w.finalize()?;
+            ("aac", "32000")
+        }
+    };
     let st = std::process::Command::new("/usr/bin/afconvert")
-        .args(["-f", "m4af", "-d", "aac", "-b", "32000"])
+        .args(["-f", "m4af", "-d", rate, "-b", bitrate])
         .arg(&mix_path)
         .arg(&out)
         .status()?;
