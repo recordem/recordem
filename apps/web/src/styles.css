@@ -70,7 +70,6 @@ button:disabled { opacity: 0.45; cursor: default; }
 .meeting-head { margin-bottom: 20px; }
 .meeting-head h1 { font-size: 26px; margin-bottom: 4px; }
 .meeting-head p { text-transform: none; }
-.tabs { display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
 .live-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 16px; background: var(--panel); }
 .live-bar button { margin-left: auto; }
 .player { position: sticky; top: 0; z-index: 1; display: flex; gap: 10px; align-items: center; padding: 10px 0; background: var(--bg); margin-bottom: 8px; }
@@ -90,8 +89,18 @@ button:disabled { opacity: 0.45; cursor: default; }
 .meeting-head h1.title { cursor: text; border-radius: 6px; margin-left: -6px; padding: 0 6px; }
 .meeting-head h1.title:hover { background: var(--soft); }
 .title-input { font: inherit; font-size: 26px; font-weight: 700; letter-spacing: -0.01em; width: 100%; margin: 0 0 4px -6px; padding: 0 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--fg); }
-.tabs .split { margin-left: auto; }
-button.danger { color: var(--accent); }
-button.danger:hover { background: var(--accent-soft); border-color: var(--accent); }
-.meeting-head .meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.meeting-head .meta button { order: 2; margin-left: auto; }
+.title-row { display: flex; align-items: flex-start; gap: 8px; }
+.title-row h1, .title-row .title-input { flex: 1; min-width: 0; }
+.menu { position: relative; flex: none; margin-top: 2px; }
+button.icon { width: 34px; height: 34px; padding: 0; font-size: 18px; line-height: 1; color: var(--muted); border-color: transparent; }
+button.icon:hover, button.icon[aria-expanded="true"] { background: var(--soft); color: var(--fg); }
+.menu-pop { position: absolute; right: 0; top: calc(100% + 4px); z-index: 10; min-width: 220px; padding: 6px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.12); }
+.menu-pop button { display: block; width: 100%; text-align: left; background: none; color: var(--fg); padding: 7px 10px; border-radius: 6px; font-size: 14px; }
+.menu-pop button:hover { background: var(--soft); }
+.menu-pop button.danger { color: var(--accent); }
+.menu-pop hr { border: 0; border-top: 1px solid var(--line); margin: 6px 0; }
+.menu-label { margin: 2px 10px 4px; font-size: 12px; color: var(--muted); }
+.segmented { display: inline-flex; gap: 2px; padding: 3px; margin-top: 14px; background: var(--soft); border-radius: 9px; }
+.segmented button { background: none; color: var(--muted); padding: 5px 12px; border-radius: 7px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.segmented button[aria-selected="true"] { background: var(--panel); color: var(--fg); box-shadow: 0 1px 2px rgba(0,0,0,.08); }

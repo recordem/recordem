@@ -10,6 +10,7 @@ export function MeetingPage({ id }: { id: string }) {
   const [meeting, setMeeting] = useState<MeetingDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pick, setPick] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState(false);
 
   const load = useCallback(async () => {
     const { data, error } = await api.GET("/v1/meetings/{id}", { params: { path: { id } } });
@@ -42,18 +43,34 @@ export function MeetingPage({ id }: { id: string }) {
   return (
     <Frame>
       <div className="meeting-head">
-        <Title meeting={meeting} onSaved={(m) => setMeeting({ ...meeting, ...m })} />
-        <p className="muted meta">
-          <button className="ghost small danger" onClick={removeMeeting}>Delete meeting</button>
+        <div className="title-row">
+          <Title meeting={meeting} editing={renaming} setEditing={setRenaming} onSaved={(m) => setMeeting({ ...meeting, ...m })} />
+          <Menu label="Meeting actions">
+            {(close) => (
+              <>
+                <button role="menuitem" onClick={() => { close(); setRenaming(true); }}>Rename</button>
+                {meeting.recordings.length > 1 && rec && (
+                  <>
+                    <hr />
+                    <p className="menu-label">Recording at {time(rec.started_at)}</p>
+                    <button role="menuitem" onClick={() => { close(); void split(rec.id); }}>Move to its own meeting</button>
+                    <button role="menuitem" className="danger" onClick={() => { close(); void removeRecording(rec.id); }}>Delete this recording…</button>
+                  </>
+                )}
+                <hr />
+                <button role="menuitem" className="danger" onClick={() => { close(); void removeMeeting(); }}>Delete meeting…</button>
+              </>
+            )}
+          </Menu>
+        </div>
+        <p className="muted">
           {[day(new Date(meeting.starts_at)), time(meeting.starts_at), duration(meeting.starts_at, meeting.ends_at), callApp(meeting.call_key)].filter(Boolean).join(" · ")}
         </p>
         {meeting.recordings.length > 1 && rec && (
-          <div className="tabs">
+          <div className="segmented" role="tablist" aria-label="Recordings">
             {meeting.recordings.map((r) => (
-              <button key={r.id} className={r.id === rec.id ? "" : "ghost"} onClick={() => setPick(r.id)}>{time(r.started_at)}</button>
+              <button key={r.id} role="tab" aria-selected={r.id === rec.id} onClick={() => setPick(r.id)}>{time(r.started_at)}</button>
             ))}
-            <button className="ghost small split" onClick={() => split(rec.id)} title="This recording is another call">Move to its own meeting</button>
-            <button className="ghost small danger" onClick={() => removeRecording(rec.id)}>Delete this recording</button>
           </div>
         )}
       </div>
@@ -62,9 +79,30 @@ export function MeetingPage({ id }: { id: string }) {
   );
 }
 
-/** The title, edited in place: click it, type, Enter (or leave the field) saves, Escape cancels. */
-function Title({ meeting, onSaved }: { meeting: MeetingDetail; onSaved: (m: Partial<MeetingDetail>) => void }) {
-  const [editing, setEditing] = useState(false);
+/** A "⋯" button and the menu it opens; closes on a choice, a click outside or Escape. */
+function Menu({ label, children }: { label: string; children: (close: () => void) => React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", away); document.removeEventListener("keydown", esc); };
+  }, [open]);
+  return (
+    <div className="menu" ref={box}>
+      <button className="ghost icon" aria-label={label} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>⋯</button>
+      {open && <div className="menu-pop" role="menu">{children(() => setOpen(false))}</div>}
+    </div>
+  );
+}
+
+/** The title, edited in place: click it (or "Rename"), type, Enter (or leave the field) saves, Escape cancels. */
+function Title({ meeting, editing, setEditing, onSaved }: {
+  meeting: MeetingDetail; editing: boolean; setEditing: (on: boolean) => void; onSaved: (m: Partial<MeetingDetail>) => void;
+}) {
   const [error, setError] = useState<string | null>(null);
   const save = async (value: string) => {
     setEditing(false);
