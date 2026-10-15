@@ -10,7 +10,7 @@ apps/auth/          identity provider: better-auth, organizations (= workspaces)
 apps/api/           Hono + @hono/zod-openapi: REST (/v1) and SSE (/v1/stream); verifies tokens, never logs anyone in
 apps/worker/        BullMQ workers (planned)
 apps/web/           portal (Vite + React): calendar, meeting page, live transcript; a client of packages/sdk
-apps/recorder/      desktop recorder, Tauri 2 (planned)
+apps/recorder/      macOS menu-bar recorder (Tauri 2, Rust): detects calls, records, transcribes locally (see its README)
 packages/contract/  zod schemas + route definitions → openapi.json
 packages/sdk/       TypeScript client: types generated from openapi.json (`bun run --filter @recordem/sdk generate`)
 packages/db/        Drizzle schema + migrations of the api database

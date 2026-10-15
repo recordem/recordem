@@ -1,0 +1,57 @@
+/* The portal's look: its beige page, its blue, pill buttons. Red is only for
+   recording. */
+:root {
+  --bg: #f4f2ee; --card: #fff; --ink: #1c1917; --muted: #78716c; --line: #e7e5e4;
+  --accent: #0a66c2; --accent-dark: #004182; --accent-ink: #fff; --rec: #dc2626; --ok: #047857; --warn: #b45309;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0c0a09; --card: #1c1917; --ink: #f5f5f4; --muted: #a8a29e; --line: rgba(255, 255, 255, .1);
+          --accent: #38bdf8; --accent-dark: #7dd3fc; --accent-ink: #0c0a09; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg);
+       color: var(--ink); -webkit-user-select: none; user-select: none; }
+header { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--card); }
+header strong { flex: 1; }
+.logo { width: 14px; height: 14px; border-radius: 50%; background: var(--rec); }
+main { padding: 16px; }
+footer { padding: 0 16px 12px; color: var(--muted); font-size: 12px; }
+h2 { font-size: 16px; margin: 0 0 4px; }
+p { margin: 0 0 12px; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 10px; }
+label.opt { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+label.opt input { margin-top: 3px; }
+.btn { appearance: none; border: 0; border-radius: 999px; padding: 8px 16px; font: inherit; font-weight: 600; cursor: pointer;
+       background: var(--accent); color: var(--accent-ink); width: 100%; transition: background .15s; }
+.btn:hover:not(:disabled) { background: var(--accent-dark); }
+.btn.ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+.btn.ghost:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.btn.rec:hover:not(:disabled) { background: #b91c1c; }
+.btn.rec { background: var(--rec); color: #fff; }
+.btn:disabled { opacity: .5; cursor: default; }
+.row { display: flex; gap: 8px; }
+.row > * { flex: 1; }
+.icon { appearance: none; border: 0; background: transparent; color: var(--muted); font-size: 16px; cursor: pointer; }
+input[type=text], input[type=password], select, textarea { width: 100%; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--line);
+       background: var(--card); color: var(--ink); font: inherit; margin: 4px 0 10px; -webkit-user-select: text; user-select: text; }
+.bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin: 8px 0 12px; }
+.bar > i { display: block; height: 100%; background: var(--accent); transition: width .3s; }
+.timer { font: 600 32px/1 ui-monospace, SFMono-Regular, monospace; margin: 8px 0 12px; }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--rec); margin-right: 6px;
+       animation: pulse 1.2s infinite; }
+@keyframes pulse { 50% { opacity: .3; } }
+.notice { border-left: 3px solid var(--warn); padding: 6px 10px; background: color-mix(in srgb, var(--warn) 8%, transparent);
+          border-radius: 4px; font-size: 12px; margin-bottom: 12px; }
+.error { color: var(--rec); font-size: 13px; }
+.chip { font-size: 11px; border: 1px solid var(--line); border-radius: 999px; padding: 1px 7px; color: var(--muted); }
+a { color: var(--accent); font-weight: 600; text-decoration: none; }
+a:hover { text-decoration: underline; }
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+textarea { resize: vertical; font-size: 13px; }
+main { max-height: calc(100vh - 90px); overflow-y: auto; }
+#ver { padding: 0 16px 10px; margin: 0; }
+details { margin-top: 12px; }
+summary { cursor: pointer; margin-bottom: 6px; }
