@@ -60,4 +60,5 @@ app.onError((e, c) => (e instanceof HTTPException ? e.getResponse() : (console.e
 const port = Number(process.env.API_PORT ?? 39411);
 console.log(`api on :${port} (auth ${AUTH_URL}, audience ${API_URL})`);
 // Audio uploads: an hour of the 48 kHz mic track is ~45 MB.
-export default { port, hostname: "0.0.0.0", fetch: app.fetch, maxRequestBodySize: 1024 ** 3 };
+// SSE streams sit quiet between pings (25 s): Bun closes idle connections after 10 s unless told otherwise.
+export default { port, hostname: "0.0.0.0", fetch: app.fetch, maxRequestBodySize: 1024 ** 3, idleTimeout: 60 };

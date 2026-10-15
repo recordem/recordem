@@ -6,6 +6,8 @@
     <string>Records your voice during a call. The transcript and audio go to your Recordem server.</string>
     <key>NSAudioCaptureUsageDescription</key>
     <string>Records the call's audio (the other participants). The transcript and audio go to your Recordem server.</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Connects to your Recordem server when it runs on your local network.</string>
     <key>LSUIElement</key>
     <false/>
   </dict>
