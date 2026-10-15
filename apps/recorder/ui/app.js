@@ -22,22 +22,32 @@ const run = async (cmd, args) => {
 
 document.getElementById("gear").onclick = () => { showSettings = !(showSettings || showPerms); showPerms = false; tick(true); };
 
-async function settings(first) {
-  const c = await invoke("get_config");
-  const addresses = `
-    <details class="small" ${c.api_url ? "" : "open"}><summary class="muted">Server addresses</summary>
-      <label class="small">Portal<input id="web" type="text" value="${esc(c.web_url)}"></label>
-      <label class="small">API<input id="api" type="text" value="${esc(c.api_url)}"></label>
-      <label class="small">Sign-in<input id="auth" type="text" value="${esc(c.auth_url)}"></label>
+const toggle = (id, on) => `<label class="switch"><input type="checkbox" id="${id}" ${on ? "checked" : ""}><i></i></label>`;
+const LANGS = [["en", "English"], ["pt", "Portuguese"], ["es", "Spanish"], ["fr", "French"], ["de", "German"]];
+
+/** The server's addresses: shown open before signing in, folded away after. */
+function serverGroup(c, open) {
+  return `
+    <details ${open ? "open" : ""}><summary class="group-title">Server ›</summary>
+      <div class="group">
+        <div class="item stack"><div class="label"><b>Portal</b></div><input id="web" type="text" value="${esc(c.web_url)}"></div>
+        <div class="item stack"><div class="label"><b>API</b></div><input id="api" type="text" value="${esc(c.api_url)}"></div>
+        <div class="item stack"><div class="label"><b>Sign-in</b></div><input id="auth" type="text" value="${esc(c.auth_url)}"></div>
+      </div>
+      ${open ? "" : `<p class="group-note">Changing the server signs you out.</p>`}
     </details>`;
-  const val = (id) => document.getElementById(id).value;
+}
+
+async function settings() {
+  const c = await invoke("get_config");
+  const val = (id) => document.getElementById(id)?.value ?? "";
   if (!c.signed_in) {
     $view.innerHTML = `
       <h2>Sign in to Recordem</h2>
       <p class="muted">Your browser opens the sign-in and comes back here.</p>
       <button class="btn" id="login">Sign in</button>
       <p id="err" class="error" style="margin-top:10px"></p>
-      ${addresses}`;
+      ${serverGroup(c, !c.api_url)}`;
     document.getElementById("login").onclick = async () => {
       const err = document.getElementById("err");
       err.textContent = "";
@@ -49,57 +59,82 @@ async function settings(first) {
     };
     return;
   }
+  const items = await invoke("permission_list").catch(() => []);
+  const missing = items.filter((i) => i.status !== "granted").length;
+  const initial = (c.account || "?").trim()[0]?.toUpperCase() ?? "?";
+  let langs = [...c.languages];
   $view.innerHTML = `
-    <h2>Settings</h2>
-    <p class="small">Account: <b>${esc(c.account || "connected")}</b> · <a href="#" id="logout">Sign out</a></p>
-    <div class="small">Languages of your calls <span class="muted">(each turn is transcribed in the one it sounds like)</span>
-      <div class="row" style="justify-content:flex-start;gap:14px;margin:4px 0 10px">${[["en", "English"], ["pt", "Portuguese"], ["es", "Spanish"]]
-        .map(([v, l]) => `<label class="opt"><input type="checkbox" name="lang" value="${v}" ${c.languages.includes(v) ? "checked" : ""}><span>${l}</span></label>`).join("")}</div></div>
-    <label class="small">When a call starts
-      <select id="oncall">${[["ask", "Ask whether to record"], ["auto", "Record by itself when it matches a meeting"], ["off", "Do nothing"]]
-        .map(([v, l]) => `<option value="${v}" ${c.on_call === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
-    <label class="small">Microphone
-      <select id="mic"><option value="">System default</option>${c.mics
-        .map((m) => `<option value="${esc(m)}" ${c.mic_device === m ? "selected" : ""}>${esc(m)}</option>`).join("")}</select></label>
-    <label class="small">Extra vocabulary <span class="muted">(one term per line; stays on this Mac)</span>
-      <textarea id="vocab" rows="3" placeholder="Kubernetes&#10;OKR&#10;due diligence">${esc(c.vocabulary)}</textarea></label>
-    <label class="opt small"><input id="live" type="checkbox" ${c.live ? "checked" : ""}>
-      <span>Transcribe during the call too (live, in the portal)</span></label>
-    <label class="opt small"><input id="hq" type="checkbox" ${c.voice_hq ? "checked" : ""}>
-      <span>Also keep my voice in high quality (48 kHz), to listen back to</span></label>
-    <label class="opt small"><input id="atlogin" type="checkbox" ${c.launch_at_login ? "checked" : ""}>
-      <span>Open when I log in to this Mac</span></label>
-    <label class="opt small" style="margin:6px 0 12px"><input id="keep" type="checkbox" ${c.keep_audio ? "checked" : ""}>
-      <span>Keep a copy of the audio on this Mac too</span></label>
-    <p class="small"><a href="#" id="perms">Permissions…</a></p>
-    ${addresses}
-    <p id="err" class="error"></p>
-    <div class="row"><button class="btn ghost" id="cancel">Back</button><button class="btn" id="save">Save</button></div>`;
-  document.getElementById("logout").onclick = async (e) => {
-    e.preventDefault();
-    if (confirm("Sign out on this Mac?")) { await invoke("logout"); showSettings = false; tick(true); }
-  };
-  document.getElementById("save").onclick = async () => {
-    const languages = [...document.querySelectorAll('input[name="lang"]:checked')].map((i) => i.value);
-    if (!languages.length) { document.getElementById("err").textContent = "Pick at least one language."; return; }
+    <div class="nav"><button class="back" id="close">‹ Back</button><h2>Settings</h2><span></span></div>
+
+    <div class="group-title">Account</div>
+    <div class="group">
+      <div class="item"><span class="avatar">${esc(initial)}</span>
+        <div class="label"><b>${esc(c.account || "Signed in")}</b><span>${esc(new URL(c.web_url || c.api_url).host)}</span></div>
+        <button class="btn ghost sm" id="logout">Sign out</button></div>
+    </div>
+
+    <div class="group-title">Recording</div>
+    <div class="group">
+      <div class="item"><div class="label"><b>When a call starts</b></div>
+        <select id="oncall">${[["ask", "Ask"], ["auto", "Record if it matches"], ["off", "Do nothing"]]
+          .map(([v, l]) => `<option value="${v}" ${c.on_call === v ? "selected" : ""}>${l}</option>`).join("")}</select></div>
+      <div class="item"><div class="label"><b>Microphone</b></div>
+        <select id="mic"><option value="">System default</option>${c.mics
+          .map((m) => `<option value="${esc(m)}" ${c.mic_device === m ? "selected" : ""}>${esc(m)}</option>`).join("")}</select></div>
+      <div class="item"><div class="label"><b>My voice in high quality</b><span>48 kHz, to listen back to how you speak</span></div>${toggle("hq", c.voice_hq)}</div>
+      <div class="item"><div class="label"><b>Keep audio on this Mac</b><span>Besides the server's copy</span></div>${toggle("keep", c.keep_audio)}</div>
+    </div>
+
+    <div class="group-title">Transcription</div>
+    <div class="group">
+      <div class="item stack"><div class="label"><b>Languages</b><span>Each turn is transcribed in the one it sounds like</span></div>
+        <div class="chips" id="langs">${LANGS.map(([v, l]) => `<button data-lang="${v}" aria-pressed="${langs.includes(v)}">${l}</button>`).join("")}</div></div>
+      <div class="item"><div class="label"><b>Live transcript</b><span>While the call goes on, in the portal</span></div>${toggle("live", c.live)}</div>
+      <div class="item stack"><div class="label"><b>Vocabulary</b><span>Names and terms Whisper should expect, one per line</span></div>
+        <textarea id="vocab" rows="3" placeholder="Kubernetes&#10;OKR">${esc(c.vocabulary)}</textarea></div>
+    </div>
+
+    <div class="group-title">General</div>
+    <div class="group">
+      <div class="item link" id="perms"><div class="label"><b>Permissions</b></div>
+        <span class="badge ${missing ? "warn" : "ok"}">${missing ? `${missing} to review` : "All allowed"}</span><span class="chev">›</span></div>
+      <div class="item"><div class="label"><b>Open at login</b></div>${toggle("atlogin", c.launch_at_login)}</div>
+    </div>
+
+    ${serverGroup(c, false)}
+    <p id="err" class="error" style="margin-top:8px"></p>`;
+
+  // Every change is saved as it's made; text fields when they lose focus.
+  const save = async () => {
     const on = (id) => document.getElementById(id).checked;
     try {
       await invoke("save_config", { input: {
-        api_url: val("api"), auth_url: val("auth"), web_url: val("web"), languages, keep_audio: on("keep"), voice_hq: on("hq"),
+        api_url: val("api"), auth_url: val("auth"), web_url: val("web"), languages: langs, keep_audio: on("keep"), voice_hq: on("hq"),
         launch_at_login: on("atlogin"), on_call: val("oncall"), mic_device: val("mic") || null, vocabulary: val("vocab"), live: on("live") } });
-      showSettings = false;
-      tick(true);
+      document.getElementById("err").textContent = "";
     } catch (e) { document.getElementById("err").textContent = e; }
   };
-  document.getElementById("cancel").onclick = () => { showSettings = false; tick(true); };
-  document.getElementById("perms").onclick = (e) => { e.preventDefault(); showSettings = false; showPerms = true; permsKey = ""; tick(true); };
+  for (const id of ["oncall", "mic", "hq", "keep", "live", "atlogin"]) document.getElementById(id).onchange = save;
+  for (const id of ["vocab", "web", "api", "auth"]) document.getElementById(id).onchange = save;
+  for (const b of document.querySelectorAll("[data-lang]")) b.onclick = () => {
+    const v = b.dataset.lang, on = langs.includes(v);
+    if (on && langs.length === 1) return;          // at least one language
+    langs = on ? langs.filter((x) => x !== v) : [...langs, v];
+    b.setAttribute("aria-pressed", String(!on));
+    save();
+  };
+  document.getElementById("close").onclick = () => { showSettings = false; tick(true); };
+  document.getElementById("logout").onclick = async () => {
+    if (confirm("Sign out on this Mac?")) { await invoke("logout"); showSettings = false; tick(true); }
+  };
+  document.getElementById("perms").onclick = () => { showSettings = false; showPerms = true; permsKey = ""; tick(true); };
 }
 
 const PERMS = {
-  microphone: ["Microphone", "Your voice."],
-  system_audio: ["System audio", "The call's audio: the other participants."],
-  accessibility: ["Accessibility", "Reads the meeting window's title (the call's name and code), so recordings land on the right meeting."],
-  automation: ["Browser", "Reads the meeting tab's link (Meet, Zoom or Teams on the web)."],
+  microphone: ["Microphone", "Your voice"],
+  system_audio: ["System audio", "The other participants"],
+  accessibility: ["Accessibility", "The meeting's name and code, from its window"],
+  automation: ["Browser", "The meeting's link, from its tab"],
 };
 
 /** One row per permission: what it's for, and its state or the one action that moves it forward. */
@@ -107,14 +142,12 @@ function permRows(items) {
   return items.map((i) => {
     const [name, why] = PERMS[i.id];
     const action =
-      i.status === "granted" ? `<span class="perm-state ok">Allowed</span>`
-      : i.status === "denied" ? `<button class="btn ghost perm-btn" data-open="${i.id}">Open Settings</button>`
-      : i.status === "unknown" ? `<span class="perm-state muted">Open a browser</span>`
-      : `<button class="btn ghost perm-btn" data-perm="${i.id}">Allow</button>`;
-    const hint = i.id === "accessibility" && i.status === "denied"
-      ? `<br><span class="small muted">Already on there? Turn Recordem off and on again: a new build needs it anew.</span>` : "";
-    return `<div class="perm"><div class="perm-text"><strong>${name}</strong>${i.required ? "" : ` <span class="small muted">recommended</span>`}
-      <br><span class="small muted">${why}</span>${hint}</div>${action}</div>`;
+      i.status === "granted" ? `<span class="perm-state">✓ Allowed</span>`
+      : i.status === "denied" ? `<button class="btn ghost sm perm-btn" data-open="${i.id}">Open Settings</button>`
+      : i.status === "unknown" ? `<span class="perm-state wait">Open a browser</span>`
+      : `<button class="btn sm perm-btn" data-perm="${i.id}">Allow</button>`;
+    const hint = i.id === "accessibility" && i.status === "denied" ? " · if it's on there, turn it off and on" : "";
+    return `<div class="item"><div class="label"><b>${name}</b><span>${why}${hint}</span></div>${action}</div>`;
   }).join("");
 }
 
@@ -125,10 +158,12 @@ async function permissionsPage() {
   if (key === permsKey) return;
   permsKey = key;
   $view.innerHTML = `
-    <h2>Permissions</h2>
-    <p class="muted small">What this Mac lets Recordem do.</p>
-    ${permRows(items)}
-    <div class="row" style="margin-top:12px"><button class="btn ghost" id="perms-back">Back</button><span></span></div>`;
+    <div class="nav"><button class="back" id="perms-back">‹ Settings</button><h2>Permissions</h2><span></span></div>
+    <div class="group-title">Needed to record</div>
+    <div class="group">${permRows(items.filter((i) => i.required))}</div>
+    <div class="group-title">Recommended</div>
+    <div class="group">${permRows(items.filter((i) => !i.required))}</div>
+    <p class="group-note">These link each recording to the right meeting. Without them, recordings are matched by time.</p>`;
   bindPerms();
   document.getElementById("perms-back").onclick = () => { showPerms = false; showSettings = true; permsKey = ""; tick(true); };
 }
@@ -141,6 +176,11 @@ function bindPerms() {
   };
   for (const b of $view.querySelectorAll("[data-open]")) b.onclick = () => invoke("open_permission", { id: b.dataset.open });
 }
+
+/** The meeting's name inside a browser window's title ("Meet - Weekly sync - Camera and microphone recording - Google
+ *  Chrome - Profile" → "Weekly sync"); the recorder cleans it the same way before sending it. */
+const callName = (t) => (t ?? "").split(/ - (?:Camera and microphone recording|Microphone recording|Camera recording|Google Chrome|Microsoft Edge|Brave|Arc)\b/)[0]
+  .replace(/^Meet [-–] /, "").replace(/^[a-z]{3}-[a-z]{4}-[a-z]{3}$/, "").trim();
 
 function render(s) {
   switch (s.phase) {
@@ -158,10 +198,10 @@ function render(s) {
       const ready = s.items.every((i) => i.status === "granted");
       return `
         <h2>Allow recording</h2>
-        <p class="muted small">macOS asks for these once. Both are needed to record a call.</p>
-        ${permRows(s.items)}
-        <p class="small muted" style="margin-top:10px">More (recommended) in Settings → Permissions.</p>
-        <div class="row" style="margin-top:12px"><span></span><button class="btn" id="perm-done" ${ready ? "" : "disabled"}>Continue</button></div>`;
+        <p class="muted">macOS asks for these once. Both are needed to record a call.</p>
+        <div class="group">${permRows(s.items)}</div>
+        <p class="group-note">More, recommended, in Settings → Permissions.</p>
+        <button class="btn" id="perm-done" style="margin-top:14px" ${ready ? "" : "disabled"}>Continue</button>`;
     }
     case "idle":
       return `
@@ -177,7 +217,7 @@ function render(s) {
           <br><span class="small muted">${time(x.starts_at)}</span>
           ${x.matched_by === "link" ? `<span class="chip">same link</span>` : ""}</span></label>`),
         `<label class="opt card"><input type="radio" name="meeting" value="" ${selected === "" || !m.length ? "checked" : ""}>
-          <span><strong>A new meeting</strong><br><span class="small muted">${esc(s.call.title || "Named after the call window")}</span></span></label>`].join("");
+          <span><strong>A new meeting</strong><br><span class="small muted">${esc(callName(s.call.title) || "Named after the call window")}</span></span></label>`].join("");
       return `
         <h2>${s.call.app_name ? `Call in ${esc(s.call.app_name)}` : "New recording"}</h2>
         ${s.error ? `<p class="error">${esc(s.error)}</p>` : `<p class="muted small">Which meeting is this?</p>`}
@@ -213,9 +253,9 @@ function render(s) {
 
 async function tick(force) {
   if (showPerms) { await permissionsPage(); return; }
-  if (showSettings) { if (force) settings(false); return; }
+  if (showSettings) { if (force) settings(); return; }
   const s = await invoke("status");
-  if (s.phase === "setup") { if (last !== "setup" || force) { last = "setup"; settings(true); } return; }
+  if (s.phase === "setup") { if (last !== "setup" || force) { last = "setup"; settings(); } return; }
   $foot.textContent = s.pending ? `${s.pending} recording${s.pending > 1 ? "s" : ""} waiting to be sent` : $foot.textContent;
   const key = JSON.stringify(s);
   if (!force && key === last) {
