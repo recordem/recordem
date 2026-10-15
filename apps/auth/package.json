@@ -12,7 +12,7 @@
     "@better-auth/oauth-provider": "1.7.7",
     "@recordem/contract": "workspace:*",
     "better-auth": "1.7.7",
-    "hono": "4.13.13",
+    "hono": "4.13.12",
     "pg": "^8.23.1"
   },
   "devDependencies": {

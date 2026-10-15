@@ -83,6 +83,23 @@ const ctx = await r.json() as { matches: { meeting_id: string; matched_by: strin
 step("context: matched by the call code in the window title", ctx.matches[0]?.meeting_id === rec.meeting_id && ctx.matches[0]?.matched_by === "link", ctx.matches);
 
 const seg = (i: number, channel: "mic" | "system", text: string) => ({ start_ms: i * 1000, end_ms: i * 1000 + 900, channel, speaker: channel === "mic" ? "mic" : "system:1", text });
+// a live view: the stream filtered to this recording, read in the background
+const events: { type: string; data: { from?: number } }[] = [];
+const sse = await fetch(`${API}/v1/stream?recording_id=${recId}`, auth);
+step("open SSE stream", sse.ok && (sse.headers.get("content-type") ?? "").startsWith("text/event-stream"));
+const reader = sse.body!.pipeThrough(new TextDecoderStream()).getReader();
+const ready = (async () => {
+  let buf = "";
+  for (;;) {
+    const { value, done } = await reader.read(); if (done) return;
+    buf += value;
+    for (let i; (i = buf.indexOf("\n\n")) >= 0; buf = buf.slice(i + 2)) {
+      const data = buf.slice(0, i).split("\n").find((l) => l.startsWith("data: "))?.slice(6);
+      if (data && data !== "{}") events.push(JSON.parse(data));
+    }
+  }
+})();
+await Bun.sleep(150);
 r = await call("POST", `/v1/recordings/${recId}/live`, { from: 0, segments: [seg(0, "mic", "Hi"), seg(1, "system", "Hello")] });
 step("live batch", (await r.json()).n === 2);
 r = await call("POST", `/v1/recordings/${recId}/live`, { from: 5, segments: [seg(5, "mic", "lost before")] });
@@ -93,6 +110,8 @@ r = await call("PUT", `/v1/recordings/${recId}/transcript`, { ended_at: new Date
 const fin = await r.json() as { status: string; segments: { text: string }[] };
 step("final transcript replaces the draft, sorted", fin.status === "final" && fin.segments[0].text === "Hi", fin.segments.map((x) => x.text));
 
+await Bun.sleep(200);
+step("SSE delivered live and final events", events.some((e) => e.type === "transcript.live" && e.data.from === 0) && events.some((e) => e.type === "transcript.final"), events.map((e) => e.type));
 const bytes = new Uint8Array(4096).map((_, i) => i % 251);
 r = await fetch(`${API}/v1/recordings/${recId}/tracks/mic_hq`, { method: "PUT", headers: { ...auth.headers, "content-type": "audio/ogg" }, body: bytes });
 step("upload mic_hq track", r.ok && (await r.json()).bytes === bytes.length);
@@ -100,6 +119,15 @@ r = await fetch(`${API}/v1/recordings/${recId}/tracks/mic_hq`, { ...auth, redire
 const back = new Uint8Array(await r.arrayBuffer());
 step("download it back", r.ok && back.length === bytes.length && back.every((b, i) => b === bytes[i]));
 
+const tu = await (await call("GET", `/v1/recordings/${recId}/tracks/mic_hq/url`)).json() as { url: string };
+r = await fetch(tu.url, { headers: { range: "bytes=100-199" } });
+const part = new Uint8Array(await r.arrayBuffer());
+step("signed track URL serves a byte range, no token", r.status === 206 && part.length === 100 && part[0] === bytes[100], r.headers.get("content-range"));
+step("tampered URL is refused", (await fetch(tu.url.replace(/sig=./, "sig=x"))).status === 403);
+step("SSE got track.ready", events.some((e) => e.type === "track.ready"));
+r = await call("POST", `/v1/recordings/${recId}/stop`);
+step("stop after the end is a no-op", r.ok);
+await reader.cancel(); void ready;
 r = await call("GET", `/v1/meetings/${rec.meeting_id}`);
 const m = await r.json() as { call_key: string; ends_at: string | null; recordings: { transcript: string; tracks: unknown[] }[] };
 step("meeting with its recording", m.call_key === "meet:abc-defg-hij" && !!m.ends_at && m.recordings[0]?.transcript === "final" && m.recordings[0].tracks.length === 1, m);

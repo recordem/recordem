@@ -7,11 +7,12 @@ OpenAPI contract that every client (web, CLI, MCP, SDK, integrations) is a thin 
 
 ```
 apps/auth/          identity provider: better-auth, organizations (= workspaces), OAuth 2.1 provider, JWKS
-apps/api/           Hono + @hono/zod-openapi: REST (/v1), later MCP (/mcp) and SSE; verifies tokens, never logs anyone in
+apps/api/           Hono + @hono/zod-openapi: REST (/v1) and SSE (/v1/stream); verifies tokens, never logs anyone in
 apps/worker/        BullMQ workers (planned)
-apps/web/           portal, a client of packages/sdk (planned)
+apps/web/           portal (Vite + React): calendar, meeting page, live transcript; a client of packages/sdk
 apps/recorder/      desktop recorder, Tauri 2 (planned)
 packages/contract/  zod schemas + route definitions → openapi.json
+packages/sdk/       TypeScript client: types generated from openapi.json (`bun run --filter @recordem/sdk generate`)
 packages/db/        Drizzle schema + migrations of the api database
 compose.yaml        Postgres and Redis for dev and self-hosting
 ```
@@ -33,6 +34,9 @@ cp .env.example .env && docker compose up -d && bun install
 bun run db:migrate && bun run dev        # auth :39410, api :39411
 bun run smoke                            # OAuth sign-up → token → record a call → read it back → isolation
 ```
+
+The portal runs on https (a self-signed cert in `apps/web/.cert/`): OAuth refuses plain-http redirect URIs off
+loopback. Its dev server proxies `/v1`, `/files` and the token endpoint (`/idp`) so the browser sees one origin.
 
 Ports are uncommon on purpose (auth 39410, api 39411, web 39412; Postgres 39420, Redis 39421).
 

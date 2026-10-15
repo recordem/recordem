@@ -1,0 +1,1708 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Recordem API",
+    "version": "0.1.0",
+    "license": {
+      "name": "MIT",
+      "url": "https://opensource.org/license/mit"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:39411"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "oauth2": {
+        "type": "oauth2",
+        "flows": {
+          "authorizationCode": {
+            "authorizationUrl": "http://localhost:39410/api/auth/oauth2/authorize",
+            "tokenUrl": "http://localhost:39410/api/auth/oauth2/token",
+            "scopes": {
+              "meetings:read": "List and read meetings",
+              "meetings:write": "Create and change meetings and recordings",
+              "transcripts:read": "Read transcripts",
+              "audio:read": "Download audio",
+              "calendars:read": "Read connected calendars",
+              "claims:write": "Claim meetings for an integration",
+              "webhooks:manage": "Manage webhook endpoints"
+            }
+          },
+          "clientCredentials": {
+            "tokenUrl": "http://localhost:39410/api/auth/oauth2/token",
+            "scopes": {
+              "meetings:read": "List and read meetings",
+              "meetings:write": "Create and change meetings and recordings",
+              "transcripts:read": "Read transcripts",
+              "audio:read": "Download audio",
+              "calendars:read": "Read connected calendars",
+              "claims:write": "Claim meetings for an integration",
+              "webhooks:manage": "Manage webhook endpoints"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "LiveAck": {
+        "type": "object",
+        "properties": {
+          "n": {
+            "type": "integer",
+            "description": "Segments held; a failed batch is resent from here"
+          },
+          "stop": {
+            "type": "boolean",
+            "description": "Someone asked, from the portal, to stop recording"
+          }
+        },
+        "required": [
+          "n",
+          "stop"
+        ]
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error",
+          "message"
+        ]
+      },
+      "LiveBatch": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Index of the first segment in this batch"
+          },
+          "segments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Segment"
+            },
+            "maxItems": 2000
+          },
+          "ended": {
+            "type": "boolean",
+            "description": "The last batch: the recording ended"
+          }
+        },
+        "required": [
+          "from",
+          "segments"
+        ]
+      },
+      "Segment": {
+        "type": "object",
+        "properties": {
+          "start_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "end_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "mic",
+              "system"
+            ],
+            "description": "mic = whoever runs the recorder, system = everyone else"
+          },
+          "speaker": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 40,
+            "description": "\"mic\", or \"system:1\", \"system:2\", … numbered by first appearance"
+          },
+          "language": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 8
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 10000
+          }
+        },
+        "required": [
+          "start_ms",
+          "end_ms",
+          "channel",
+          "text"
+        ]
+      },
+      "Recording": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "meeting_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "ended_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "transcript": {
+            "type": "string",
+            "enum": [
+              "none",
+              "live",
+              "final"
+            ]
+          },
+          "tracks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Track"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "meeting_id",
+          "owner",
+          "started_at",
+          "ended_at",
+          "transcript",
+          "tracks"
+        ]
+      },
+      "Track": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "mix",
+              "mic_hq"
+            ]
+          },
+          "content_type": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "content_type",
+          "bytes"
+        ]
+      },
+      "CreateRecording": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Chosen by the recorder, so a retry creates nothing new"
+          },
+          "meeting_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "From a context match; omitted → a new meeting"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 2000
+          },
+          "app": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 40
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 400
+          }
+        },
+        "required": [
+          "id",
+          "started_at"
+        ]
+      },
+      "Me": {
+        "type": "object",
+        "properties": {
+          "subject": {
+            "type": "string",
+            "description": "The user id, or the client id for a machine token"
+          },
+          "workspace": {
+            "type": "string",
+            "description": "The workspace the token acts in"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "client": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The OAuth client that obtained the token"
+          }
+        },
+        "required": [
+          "subject",
+          "workspace",
+          "scopes",
+          "client"
+        ]
+      },
+      "MeetingDetail": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Meeting"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "recordings": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Recording"
+                }
+              }
+            },
+            "required": [
+              "recordings"
+            ]
+          }
+        ]
+      },
+      "Meeting": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "call_key": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "meet:abc-defg-hij, zoom:81234567890, teams:…",
+            "example": "meet:abc-defg-hij"
+          },
+          "starts_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "ends_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "call_key",
+          "starts_at",
+          "ends_at",
+          "created_at"
+        ]
+      },
+      "TrackUrl": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Short-lived; works in an <audio> element, no token needed"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "url",
+          "expires_at"
+        ]
+      },
+      "Transcript": {
+        "type": "object",
+        "properties": {
+          "recording_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "live",
+              "final"
+            ]
+          },
+          "language": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "segments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Segment"
+            }
+          }
+        },
+        "required": [
+          "recording_id",
+          "status",
+          "language",
+          "model",
+          "segments"
+        ]
+      },
+      "Match": {
+        "type": "object",
+        "properties": {
+          "meeting_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "starts_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "matched_by": {
+            "type": "string",
+            "enum": [
+              "link",
+              "time"
+            ],
+            "description": "link: same call code; time: a meeting of yours now"
+          }
+        },
+        "required": [
+          "meeting_id",
+          "title",
+          "starts_at",
+          "matched_by"
+        ]
+      },
+      "ContextRequest": {
+        "type": "object",
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the call started; default now"
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 2000,
+            "description": "The call's link, when the recorder can see it"
+          },
+          "app": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 40,
+            "example": "google_meet"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 400,
+            "description": "The meeting window's title (Meet puts the code there)"
+          }
+        }
+      },
+      "FinalTranscript": {
+        "type": "object",
+        "properties": {
+          "ended_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "language": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 20
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 80
+          },
+          "segments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Segment"
+            },
+            "maxItems": 20000
+          }
+        },
+        "required": [
+          "ended_at",
+          "segments"
+        ]
+      },
+      "StreamEvent": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Event id (also the SSE id)"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "recording.created",
+              "recording.ended",
+              "recording.stop_requested",
+              "transcript.live",
+              "transcript.final",
+              "track.ready"
+            ]
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "meeting_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "recording_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": {},
+            "description": "transcript.live: {from, segments}; track.ready: Track; others: {}"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "at",
+          "meeting_id",
+          "recording_id",
+          "data"
+        ]
+      }
+    },
+    "parameters": {}
+  },
+  "paths": {
+    "/v1/recordings/{id}/live": {
+      "post": {
+        "operationId": "appendLive",
+        "tags": [
+          "recorder"
+        ],
+        "summary": "Append live transcript segments",
+        "description": "A batch past what is held is not stored: the answer tells the recorder where to resend from. After the final transcript, batches are ignored.",
+        "security": [
+          {
+            "oauth2": [
+              "meetings:write"
+            ]
+          }
+        ],
+        "x-scopes": [
+          "meetings:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LiveBatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "How many segments are held",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveAck"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token lacks a required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found in this workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/recordings": {
+      "post": {
+        "operationId": "createRecording",
+        "tags": [
+          "recorder"
+        ],
+        "summary": "Start a recording",
+        "description": "Idempotent by `id`. Without `meeting_id`, a meeting is created from the call's link, app and title.",
+        "security": [
+          {
+            "oauth2": [
+              "meetings:write"
+            ]
+          }
+        ],
+        "x-scopes": [
+          "meetings:write"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRecording"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The recording",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Recording"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token lacks a required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found in this workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/me": {
+      "get": {
+        "operationId": "getMe",
+        "tags": [
+          "identity"
+        ],
+        "summary": "Who the token is",
+        "security": [
+          {
+            "oauth2": []
+          }
+        ],
+        "x-scopes": [],
+        "responses": {
+          "200": {
+            "description": "The token's subject, workspace and scopes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token lacks a required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/meetings/{id}": {
+      "get": {
+        "operationId": "getMeeting",
+        "tags": [
+          "meetings"
+        ],
+        "summary": "A meeting with its recordings",
+        "security": [
+          {
+            "oauth2": [
+              "meetings:read"
+            ]
+          }
+        ],
+        "x-scopes": [
+          "meetings:read"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The meeting",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeetingDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token lacks a required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found in this workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/recordings/{id}": {
+      "get": {
+        "operationId": "getRecording",
+        "tags": [
+          "recordings"
+        ],
+        "summary": "A recording",
+        "security": [
+          {
+            "oauth2": [
+              "meetings:read"
+            ]
+          }
+        ],
+        "x-scopes": [
+          "meetings:read"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The recording",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Recording"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token lacks a required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found in this workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/recordings/{id}/tracks/{kind}": {
+      "get": {
+        "operationId": "getTrack",
+        "tags": [
+          "recordings"
+        ],
+        "summary": "Download an audio track",
+        "description": "Redirects to a short-lived URL, or serves the bytes.",
+        "security": [
+          {
+            "oauth2": [
+              "audio:read"
+            ]
+          }
+        ],
+        "x-scopes": [
+          "audio:read"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "mix",
+                "mic_hq"
+              ]
+            },
+            "required": true,
+            "name": "kind",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The audio",
+            "content": {
+              "audio/mp4": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "audio/ogg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "audio/flac": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "302": {
+            "description": "Short-lived download URL"
+          },
+          "401": {
+            "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token lacks a required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found in this workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "putTrack",
+        "tags": [
+          "recorder"
+        ],
+        "summary": "Upload an audio track",
+        "description": "`mix`: both channels for playback (AAC). `mic_hq`: the recorder's own microphone at 48 kHz (Opus or FLAC).",
+        "security": [
+          {
+            "oauth2": [
+              "meetings:write"
+            ]
+          }
+        ],
+        "x-scopes": [
+          "meetings:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "mix",
+                "mic_hq"
+              ]
+            },
+            "required": true,
+            "name": "kind",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "audio/mp4": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "audio/ogg": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "audio/flac": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The stored track",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Track"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token lacks a required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found in this workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported audio type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/recordings/{id}/tracks/{kind}/url": {
+      "get": {
+        "operationId": "getTrackUrl",
+        "tags": [
+          "recordings"
+        ],
+        "summary": "A short-lived URL for a track",
+        "description": "For players that can't send a token (an <audio> element).",
+        "security": [
+          {
+            "oauth2": [
+              "audio:read"
+            ]
+          }
+        ],
+        "x-scopes": [
+          "audio:read"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "mix",
+                "mic_hq"
+              ]
+            },
+            "required": true,
+            "name": "kind",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The URL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackUrl"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token lacks a required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found in this workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/recordings/{id}/transcript": {
+      "get": {
+        "operationId": "getTranscript",
+        "tags": [
+          "recordings"
+        ],
+        "summary": "A recording's transcript (live or final)",
+        "security": [
+          {
+            "oauth2": [
+              "transcripts:read"
+            ]
+          }
+        ],
+        "x-scopes": [
+          "transcripts:read"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The transcript",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Transcript"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token lacks a required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found in this workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "putTranscript",
+        "tags": [
+          "recorder"
+        ],
+        "summary": "Deliver the final transcript",
+        "description": "Replaces the live draft and ends the recording.",
+        "security": [
+          {
+            "oauth2": [
+              "meetings:write"
+            ]
+          }
+        ],
+        "x-scopes": [
+          "meetings:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FinalTranscript"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The stored transcript",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Transcript"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token lacks a required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found in this workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/meetings": {
+      "get": {
+        "operationId": "listMeetings",
+        "tags": [
+          "meetings"
+        ],
+        "summary": "Meetings of the workspace, newest first",
+        "security": [
+          {
+            "oauth2": [
+              "meetings:read"
+            ]
+          }
+        ],
+        "x-scopes": [
+          "meetings:read"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "`next` from the previous page"
+            },
+            "required": false,
+            "description": "`next` from the previous page",
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Meetings starting at or after"
+            },
+            "required": false,
+            "description": "Meetings starting at or after",
+            "name": "from",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Meetings starting before"
+            },
+            "required": false,
+            "description": "Meetings starting before",
+            "name": "to",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of meetings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Meeting"
+                      }
+                    },
+                    "next": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Cursor for the next page; null at the end"
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "next"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token lacks a required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/meetings/context": {
+      "post": {
+        "operationId": "meetingContext",
+        "tags": [
+          "recorder"
+        ],
+        "summary": "What a call that just started could be",
+        "description": "The recorder asks this when a meeting app takes the microphone. Meetings with the same call link near that time come first, then the caller's meetings at that time.",
+        "security": [
+          {
+            "oauth2": [
+              "meetings:read"
+            ]
+          }
+        ],
+        "x-scopes": [
+          "meetings:read"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContextRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Candidate meetings, best first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "matches": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Match"
+                      }
+                    }
+                  },
+                  "required": [
+                    "matches"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token lacks a required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/recordings/{id}/stop": {
+      "post": {
+        "operationId": "stopRecording",
+        "tags": [
+          "recordings"
+        ],
+        "summary": "Ask the recorder to stop",
+        "description": "The recorder reads it in its next live batch answer (`stop: true`).",
+        "security": [
+          {
+            "oauth2": [
+              "meetings:write"
+            ]
+          }
+        ],
+        "x-scopes": [
+          "meetings:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The recording",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Recording"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token lacks a required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found in this workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/stream": {
+      "get": {
+        "operationId": "stream",
+        "tags": [
+          "realtime"
+        ],
+        "summary": "Server-Sent Events of the workspace",
+        "description": "Each `data:` line is a StreamEvent (`event:` is its type). Filter to one recording with `recording_id`. After a reconnect, read the current state (e.g. the transcript) again, then keep streaming.",
+        "security": [
+          {
+            "oauth2": [
+              "meetings:read"
+            ]
+          }
+        ],
+        "x-scopes": [
+          "meetings:read"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "name": "recording_id",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The event stream",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/StreamEvent"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token lacks a required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "webhooks": {}
+}

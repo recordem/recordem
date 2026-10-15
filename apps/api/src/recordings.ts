@@ -5,9 +5,11 @@ import { routes } from "@recordem/contract";
 import { meetings, recordings, tracks, transcripts, type Db, type Segment } from "@recordem/db";
 import { and, asc, eq, lte, sql } from "drizzle-orm";
 import { HTTPException } from "hono/http-exception";
+import { streamSSE } from "hono/streaming";
 import type { Actor, Env } from "./auth";
 import { callKey } from "./callkey";
-import { storage } from "./storage";
+import { listen, publish } from "./events";
+import { publicOrigin, storage } from "./storage";
 import { meetingView, recordingView, trackView, transcriptView } from "./views";
 
 const notFound = (what: string) => new HTTPException(404, { res: Response.json({ error: "not_found", message: `${what} not found` }, { status: 404 }) });
@@ -80,6 +82,7 @@ export function mount(app: OpenAPIHono<Env>, db: Db) {
     const [r] = await db.insert(recordings).values({
       id: b.id, workspaceId: a.workspace, meetingId, owner: a.subject, client: a.client, startedAt: new Date(b.started_at),
     }).returning();
+    await publish(a.workspace, { type: "recording.created", meeting_id: meetingId, recording_id: r.id, data: {} });
     return c.json(await full(r), 200);
   });
 
@@ -97,7 +100,12 @@ export function mount(app: OpenAPIHono<Env>, db: Db) {
     const segments: Segment[] = [...held.slice(0, b.from), ...b.segments];
     await db.insert(transcripts).values({ recordingId: r.id, workspaceId: a.workspace, status: "live", segments })
       .onConflictDoUpdate({ target: transcripts.recordingId, set: { segments, updatedAt: new Date() } });
-    if (b.ended && !r.endedAt) await db.update(recordings).set({ endedAt: new Date() }).where(eq(recordings.id, r.id));
+    const ev = { meeting_id: r.meetingId, recording_id: r.id };
+    if (b.segments.length) await publish(a.workspace, { type: "transcript.live", ...ev, data: { from: b.from, segments: b.segments } });
+    if (b.ended && !r.endedAt) {
+      await db.update(recordings).set({ endedAt: new Date() }).where(eq(recordings.id, r.id));
+      await publish(a.workspace, { type: "recording.ended", ...ev, data: {} });
+    }
     return c.json({ n: segments.length, stop }, 200);
   });
 
@@ -113,6 +121,7 @@ export function mount(app: OpenAPIHono<Env>, db: Db) {
     await db.update(recordings).set({ endedAt }).where(eq(recordings.id, r.id));
     await db.update(meetings).set({ endsAt: sql`greatest(${meetings.endsAt}, ${endedAt.toISOString()}::timestamptz)` })
       .where(eq(meetings.id, r.meetingId));
+    await publish(a.workspace, { type: "transcript.final", meeting_id: r.meetingId, recording_id: r.id, data: {} });
     return c.json(transcriptView(t), 200);
   });
 
@@ -137,6 +146,7 @@ export function mount(app: OpenAPIHono<Env>, db: Db) {
     const values = { key, contentType: type, bytes, createdAt: new Date() };
     const [t] = await db.insert(tracks).values({ recordingId: r.id, kind, workspaceId: a.workspace, ...values })
       .onConflictDoUpdate({ target: [tracks.recordingId, tracks.kind], set: values }).returning();
+    await publish(a.workspace, { type: "track.ready", meeting_id: r.meetingId, recording_id: r.id, data: trackView(t) });
     return c.json(trackView(t), 200);
   });
 
@@ -147,5 +157,49 @@ export function mount(app: OpenAPIHono<Env>, db: Db) {
     if (!t) throw notFound("track");
     return (await storage.serve(t.key, t.contentType)) as never;
   });
+
+  const URL_TTL = 3600;   // long enough to listen to a whole meeting without the player losing its source
+
+  app.openapi(routes.getTrackUrl, async (c) => {
+    const { id, kind } = c.req.valid("param");
+    const r = await recording(c.get("actor"), id);
+    const [t] = await db.select().from(tracks).where(and(eq(tracks.recordingId, r.id), eq(tracks.kind, kind)));
+    if (!t) throw notFound("track");
+    return c.json({ url: storage.url(t.key, URL_TTL, publicOrigin(c.req.raw)), expires_at: new Date(Date.now() + URL_TTL * 1000).toISOString() }, 200);
+  });
+
+  app.openapi(routes.stopRecording, async (c) => {
+    const a = c.get("actor");
+    const r = await recording(a, c.req.valid("param").id);
+    if (!r.endedAt && !r.stopRequestedAt) {
+      const [u] = await db.update(recordings).set({ stopRequestedAt: new Date() }).where(eq(recordings.id, r.id)).returning();
+      await publish(a.workspace, { type: "recording.stop_requested", meeting_id: r.meetingId, recording_id: r.id, data: {} });
+      return c.json(await full(u), 200);
+    }
+    return c.json(await full(r), 200);
+  });
+
+  app.openapi(routes.stream, (c) => {
+    const a = c.get("actor");
+    const only = c.req.valid("query").recording_id;
+    return streamSSE(c, async (s) => {
+      const queue: StreamEventLike[] = [];
+      let wake: (() => void) | null = null;
+      const stop = await listen(a.workspace, (e) => {
+        if (only && e.recording_id !== only) return;
+        queue.push(e); wake?.();
+      });
+      s.onAbort(stop);
+      await s.writeSSE({ event: "ready", data: "{}" });
+      while (!s.aborted) {
+        while (queue.length) { const e = queue.shift()!; await s.writeSSE({ id: e.id, event: e.type, data: JSON.stringify(e) }); }
+        // A comment line every 25 s keeps proxies from closing an idle stream.
+        await Promise.race([new Promise<void>((r) => (wake = r)), Bun.sleep(25_000).then(() => s.write(": ping\n\n"))]);
+        wake = null;
+      }
+      stop();
+    }) as never;
+  });
 }
 
+type StreamEventLike = { id: string; type: string };

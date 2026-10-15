@@ -2,7 +2,7 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import {
   ContextRequest, CreateRecording, ErrorBody, FinalTranscript, LiveAck, LiveBatch, Match, Me, Meeting, MeetingDetail, Page,
-  Recording, Transcript, Track,
+  Recording, StreamEvent, Transcript, Track, TrackUrl,
 } from "./schemas";
 import type { Scope } from "./scopes";
 
@@ -27,6 +27,8 @@ export const listMeetings = createRoute({
     query: z.object({
       limit: z.coerce.number().int().min(1).max(200).default(50),
       cursor: z.string().optional().openapi({ description: "`next` from the previous page" }),
+      from: z.string().datetime({ offset: true }).optional().openapi({ description: "Meetings starting at or after" }),
+      to: z.string().datetime({ offset: true }).optional().openapi({ description: "Meetings starting before" }),
     }),
   },
   responses: { 200: json(Page(Meeting), "A page of meetings"), ...errors },
@@ -102,4 +104,29 @@ export const getTrack = createRoute({
   ...needs("audio:read"),
   request: { params: trackParams },
   responses: { 200: { content: audio, description: "The audio" }, 302: { description: "Short-lived download URL" }, ...errors, ...notFound },
+});
+
+export const getTrackUrl = createRoute({
+  method: "get", path: "/v1/recordings/{id}/tracks/{kind}/url", operationId: "getTrackUrl", tags: ["recordings"],
+  summary: "A short-lived URL for a track", description: "For players that can't send a token (an <audio> element).",
+  ...needs("audio:read"),
+  request: { params: trackParams },
+  responses: { 200: json(TrackUrl, "The URL"), ...errors, ...notFound },
+});
+
+export const stopRecording = createRoute({
+  method: "post", path: "/v1/recordings/{id}/stop", operationId: "stopRecording", tags: ["recordings"],
+  summary: "Ask the recorder to stop", description: "The recorder reads it in its next live batch answer (`stop: true`).",
+  ...needs("meetings:write"),
+  request: { params: id },
+  responses: { 200: json(Recording, "The recording"), ...errors, ...notFound },
+});
+
+export const stream = createRoute({
+  method: "get", path: "/v1/stream", operationId: "stream", tags: ["realtime"],
+  summary: "Server-Sent Events of the workspace",
+  description: "Each `data:` line is a StreamEvent (`event:` is its type). Filter to one recording with `recording_id`. After a reconnect, read the current state (e.g. the transcript) again, then keep streaming.",
+  ...needs("meetings:read"),
+  request: { query: z.object({ recording_id: z.string().uuid().optional() }) },
+  responses: { 200: { content: { "text/event-stream": { schema: StreamEvent } }, description: "The event stream" }, ...errors },
 });

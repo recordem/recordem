@@ -3,10 +3,16 @@
 import { oauthProviderAuthServerMetadata, oauthProviderOpenIdConfigMetadata } from "@better-auth/oauth-provider";
 import { SCOPES } from "@recordem/contract";
 import { Hono, type Context } from "hono";
-import { AUTH_URL, auth } from "./auth";
+import { cors } from "hono/cors";
+import { AUTH_URL, auth, pool } from "./auth";
+import { ensureFirstParty } from "./first-party";
 import { page } from "./page";
 
 const app = new Hono();
+
+// The portal exchanges codes and refreshes tokens from the browser.
+const ORIGINS = (process.env.WEB_ORIGINS ?? "http://localhost:39412").split(",");
+app.use("/api/auth/oauth2/*", cors({ origin: ORIGINS, allowHeaders: ["content-type", "authorization"], maxAge: 600 }));
 
 app.on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(c.req.raw));
 app.get("/.well-known/openid-configuration", (c) => oauthProviderOpenIdConfigMetadata(auth)(c.req.raw));
@@ -86,6 +92,8 @@ app.post("/consent", async (c) => {
 });
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]!);
+
+await ensureFirstParty(pool, { id: "recordem-web", name: "Recordem", type: "web", redirectUris: ORIGINS.map((o) => `${o}/callback`) });
 
 const port = Number(process.env.AUTH_PORT ?? 39410);
 console.log(`auth on :${port} (issuer ${AUTH_URL})`);

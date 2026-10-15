@@ -2,22 +2,28 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { document, routes } from "@recordem/contract";
 import { connect, meetings } from "@recordem/db";
-import { and, desc, eq, lt, or } from "drizzle-orm";
+import { and, desc, eq, gte, lt, or } from "drizzle-orm";
+import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import { authenticate, requireScopes, type Env } from "./auth";
 import { mount } from "./recordings";
+import { files } from "./storage";
 import { meetingView } from "./views";
 
 const env = (k: string, d?: string) => process.env[k] ?? d ?? (() => { throw new Error(`${k} is not set`); })();
 const AUTH_URL = env("AUTH_URL", "http://localhost:39410");
 const API_URL = env("API_URL", "http://localhost:39411");
 const db = connect(env("DATABASE_URL"));
+// Browser clients (the portal) call the API directly with a Bearer token.
+const ORIGINS = env("WEB_ORIGINS", "http://localhost:39412").split(",");
 
 const app = new OpenAPIHono<Env>({
   defaultHook: (r, c) => (r.success ? undefined : c.json({ error: "invalid_request", message: r.error.message }, 400)),
 });
 
+app.use("*", cors({ origin: ORIGINS, allowHeaders: ["authorization", "content-type"], exposeHeaders: ["www-authenticate"], maxAge: 600 }));
 app.get("/healthz", (c) => c.text("ok"));
+app.get("/files/*", (c) => files(c.req.raw));
 app.get("/v1/openapi.json", (c) => c.json(document(AUTH_URL, API_URL)));
 app.use("/v1/*", async (c, next) => (c.req.path === "/v1/openapi.json" ? next() : authenticate({ authUrl: AUTH_URL, audience: API_URL })(c, next)));
 // Each route requires the scopes the contract declares for it (per method: GET and PUT of a track differ).
@@ -30,11 +36,13 @@ app.openapi(routes.getMe, (c) => {
 
 // Cursor: "<starts_at ISO>|<id>" of the last item, matching the (workspace, starts_at desc, id desc) index.
 app.openapi(routes.listMeetings, async (c) => {
-  const { limit, cursor } = c.req.valid("query");
+  const { limit, cursor, from, to } = c.req.valid("query");
   const ws = c.get("actor").workspace;
   const [at, id] = cursor ? cursor.split("|") : [];
   const rows = await db.select().from(meetings)
     .where(and(eq(meetings.workspaceId, ws),
+      from ? gte(meetings.startsAt, new Date(from)) : undefined,
+      to ? lt(meetings.startsAt, new Date(to)) : undefined,
       at && id ? or(lt(meetings.startsAt, new Date(at)), and(eq(meetings.startsAt, new Date(at)), lt(meetings.id, id))) : undefined))
     .orderBy(desc(meetings.startsAt), desc(meetings.id)).limit(limit + 1);
   const page = rows.slice(0, limit);

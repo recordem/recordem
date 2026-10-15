@@ -19,7 +19,7 @@ const ISSUER = (() => {
   return u.toString();
 })();
 
-const pool = new Pool({ connectionString: env("AUTH_DATABASE_URL") });
+export const pool = new Pool({ connectionString: env("AUTH_DATABASE_URL") });
 
 /** The first workspace a user belongs to: the default when a session starts. */
 async function firstWorkspace(userId: string): Promise<string | null> {
@@ -37,7 +37,8 @@ export const auth = betterAuth({
   emailAndPassword: { enabled: true },
   // The OAuth token endpoint replaces better-auth's own /token.
   disabledPaths: ["/token"],
-  trustedOrigins: [AUTH_URL],
+  // The portal calls the token endpoint from its own origin.
+  trustedOrigins: [AUTH_URL, ...(process.env.WEB_ORIGINS ?? "http://localhost:39412").split(",")],
   databaseHooks: {
     session: {
       create: {
