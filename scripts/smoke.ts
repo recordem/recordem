@@ -1,5 +1,6 @@
-// End-to-end check of the first milestone, as a CLI would do it: a new user signs up inside an OAuth flow
-// (authorization code + PKCE, public client), consents, gets a token, and calls the API with it.
+// End-to-end check, as the recorder would do it: a new user signs up inside an OAuth flow (authorization code +
+// PKCE, public client), consents, gets a token, then records a call: context, recording, live batches, final
+// transcript, audio — and reads it all back.
 //   bun scripts/smoke.ts            (auth and api running; reads AUTH_URL / API_URL from the environment)
 const AUTH = process.env.AUTH_URL ?? "http://localhost:39410";
 const API = process.env.API_URL ?? "http://localhost:39411";
@@ -26,7 +27,7 @@ step("register public client", reg.ok, reg.ok ? client.client_id : client);
 const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
 const challenge = b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
 const q = new URLSearchParams({ response_type: "code", client_id: client.client_id, redirect_uri: REDIRECT, state: "s1",
-  scope: "openid profile meetings:read offline_access", code_challenge: challenge, code_challenge_method: "S256", resource: API });
+  scope: "openid profile offline_access meetings:read meetings:write transcripts:read audio:read", code_challenge: challenge, code_challenge_method: "S256", resource: API });
 let res = await go(`${AUTH}/api/auth/oauth2/authorize?${q}`);
 let loc = res.headers.get("location") ?? "";
 step("authorize redirects to sign-in", loc.includes("/sign-in"), loc.slice(0, 80));
@@ -60,3 +61,61 @@ const list = await fetch(`${API}/v1/meetings`, auth);
 step("GET /v1/meetings", list.ok, await list.json());
 const none = await fetch(`${API}/v1/me`);
 step("no token → 401", none.status === 401);
+
+// 7. the recorder's flow
+const call = (method: string, path: string, body?: unknown) => fetch(`${API}${path}`, {
+  method, headers: { ...auth.headers, ...(body === undefined ? {} : { "content-type": "application/json" }) },
+  body: body === undefined ? undefined : JSON.stringify(body) });
+const url = "https://meet.google.com/abc-defg-hij";
+const startedAt = new Date().toISOString();
+let r = await call("POST", "/v1/meetings/context", { url, app: "google_meet" });
+step("context: nothing yet", r.ok && (await r.json()).matches.length === 0);
+
+const recId = crypto.randomUUID();
+r = await call("POST", "/v1/recordings", { id: recId, started_at: startedAt, url, app: "google_meet", title: "Weekly sync" });
+const rec = await r.json() as { meeting_id: string; transcript: string };
+step("create recording (and its meeting)", r.ok && rec.transcript === "none", rec);
+r = await call("POST", "/v1/recordings", { id: recId, started_at: startedAt, url });
+step("create again is the same recording", r.ok && (await r.json()).meeting_id === rec.meeting_id);
+
+r = await call("POST", "/v1/meetings/context", { url: "abc-defg-hij - Google Meet", app: "google_meet" });
+const ctx = await r.json() as { matches: { meeting_id: string; matched_by: string }[] };
+step("context: matched by the call code in the window title", ctx.matches[0]?.meeting_id === rec.meeting_id && ctx.matches[0]?.matched_by === "link", ctx.matches);
+
+const seg = (i: number, channel: "mic" | "system", text: string) => ({ start_ms: i * 1000, end_ms: i * 1000 + 900, channel, speaker: channel === "mic" ? "mic" : "system:1", text });
+r = await call("POST", `/v1/recordings/${recId}/live`, { from: 0, segments: [seg(0, "mic", "Hi"), seg(1, "system", "Hello")] });
+step("live batch", (await r.json()).n === 2);
+r = await call("POST", `/v1/recordings/${recId}/live`, { from: 5, segments: [seg(5, "mic", "lost before")] });
+step("live batch after a gap → resend from 2", (await r.json()).n === 2);
+
+r = await call("PUT", `/v1/recordings/${recId}/transcript`, { ended_at: new Date().toISOString(), language: "en", model: "whisper large-v3-turbo",
+  segments: [seg(1, "system", "Hello there"), seg(0, "mic", "Hi")] });
+const fin = await r.json() as { status: string; segments: { text: string }[] };
+step("final transcript replaces the draft, sorted", fin.status === "final" && fin.segments[0].text === "Hi", fin.segments.map((x) => x.text));
+
+const bytes = new Uint8Array(4096).map((_, i) => i % 251);
+r = await fetch(`${API}/v1/recordings/${recId}/tracks/mic_hq`, { method: "PUT", headers: { ...auth.headers, "content-type": "audio/ogg" }, body: bytes });
+step("upload mic_hq track", r.ok && (await r.json()).bytes === bytes.length);
+r = await fetch(`${API}/v1/recordings/${recId}/tracks/mic_hq`, { ...auth, redirect: "follow" });
+const back = new Uint8Array(await r.arrayBuffer());
+step("download it back", r.ok && back.length === bytes.length && back.every((b, i) => b === bytes[i]));
+
+r = await call("GET", `/v1/meetings/${rec.meeting_id}`);
+const m = await r.json() as { call_key: string; ends_at: string | null; recordings: { transcript: string; tracks: unknown[] }[] };
+step("meeting with its recording", m.call_key === "meet:abc-defg-hij" && !!m.ends_at && m.recordings[0]?.transcript === "final" && m.recordings[0].tracks.length === 1, m);
+
+// 8. another person, in their own workspace, sees none of it
+jar.clear();
+let res2 = await go(`${AUTH}/api/auth/oauth2/authorize?${q}`);
+res2 = await go(new URL(res2.headers.get("location")!, AUTH).href, form({ email: `other+${Date.now()}@recordem.dev`, password: "smoke-password-2", create: "on" }));
+res2 = await go(new URL(res2.headers.get("location")!, AUTH).href.replace(/^(.*?)\/consent/, `${AUTH}/consent`), form({ accept: "yes" }));
+const code2 = new URL(res2.headers.get("location")!, AUTH).searchParams.get("code")!;
+const tok2 = await (await fetch(`${AUTH}/api/auth/oauth2/token`, form({ grant_type: "authorization_code", code: code2, redirect_uri: REDIRECT,
+  client_id: client.client_id, code_verifier: verifier, resource: API }))).json() as { access_token: string };
+const other = { headers: { authorization: `Bearer ${tok2.access_token}` } };
+step("other workspace: recording is 404", (await fetch(`${API}/v1/recordings/${recId}`, other)).status === 404);
+step("other workspace: meeting is 404", (await fetch(`${API}/v1/meetings/${rec.meeting_id}`, other)).status === 404);
+step("other workspace: list is empty", ((await (await fetch(`${API}/v1/meetings`, other)).json()) as { items: unknown[] }).items.length === 0);
+const steal = await fetch(`${API}/v1/recordings`, { method: "POST", headers: { ...other.headers, "content-type": "application/json" },
+  body: JSON.stringify({ id: recId, started_at: startedAt }) });
+step("other workspace: can't take the recording id", steal.status === 403);

@@ -20,7 +20,7 @@ compose.yaml        Postgres and Redis for dev and self-hosting
 
 - **Contract first.** A route is defined in `packages/contract` before `apps/api` implements it; clients only call
   what is in `openapi.json`. `/v1` only grows; breaking changes go to `/v2`.
-- **Identity is separate.** `apps/auth` owns users, sessions, workspaces and OAuth clients in its own database.
+- **Identity is separate.** `apps/auth` owns users, sessions, workspaces and OAuth clients in schema `auth`, under its own role.
   `apps/api` only verifies JWTs against the auth JWKS and reads `sub`, `workspace` and `scope`.
 - **Every api row has a `workspace_id`**, and every query filters by it.
 - **Integrations are clients**: they keep their own data and store Recordem ids plus the opaque `ref` they gave us.
@@ -31,7 +31,7 @@ compose.yaml        Postgres and Redis for dev and self-hosting
 ```bash
 cp .env.example .env && docker compose up -d && bun install
 bun run db:migrate && bun run dev        # auth :39410, api :39411
-bun run smoke                            # sign up → OAuth (PKCE) → token → GET /v1/me
+bun run smoke                            # OAuth sign-up → token → record a call → read it back → isolation
 ```
 
 Ports are uncommon on purpose (auth 39410, api 39411, web 39412; Postgres 39420, Redis 39421).

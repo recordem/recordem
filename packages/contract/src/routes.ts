@@ -1,10 +1,16 @@
 // Every route of the API. apps/api implements them; nothing else is served under /v1.
 import { createRoute, z } from "@hono/zod-openapi";
-import { ErrorBody, Me, Meeting, Page } from "./schemas";
+import {
+  ContextRequest, CreateRecording, ErrorBody, FinalTranscript, LiveAck, LiveBatch, Match, Me, Meeting, MeetingDetail, Page,
+  Recording, Transcript, Track,
+} from "./schemas";
 import type { Scope } from "./scopes";
 
 const json = <T extends z.ZodTypeAny>(schema: T, description: string) => ({ content: { "application/json": { schema } }, description });
 const errors = { 401: json(ErrorBody, "Missing or invalid token"), 403: json(ErrorBody, "Token lacks a required scope") };
+const notFound = { 404: json(ErrorBody, "Not found in this workspace") };
+const body = <T extends z.ZodTypeAny>(schema: T) => ({ body: { content: { "application/json": { schema } }, required: true } });
+const id = z.object({ id: z.string().uuid() });
 /** Scopes a route requires, read by the API's auth middleware. */
 const needs = (...scopes: Scope[]) => ({ security: [{ oauth2: scopes }], "x-scopes": scopes });
 
@@ -24,4 +30,76 @@ export const listMeetings = createRoute({
     }),
   },
   responses: { 200: json(Page(Meeting), "A page of meetings"), ...errors },
+});
+
+export const getMeeting = createRoute({
+  method: "get", path: "/v1/meetings/{id}", operationId: "getMeeting", tags: ["meetings"],
+  summary: "A meeting with its recordings", ...needs("meetings:read"),
+  request: { params: id },
+  responses: { 200: json(MeetingDetail, "The meeting"), ...errors, ...notFound },
+});
+
+export const meetingContext = createRoute({
+  method: "post", path: "/v1/meetings/context", operationId: "meetingContext", tags: ["recorder"],
+  summary: "What a call that just started could be", description: "The recorder asks this when a meeting app takes the microphone. Meetings with the same call link near that time come first, then the caller's meetings at that time.",
+  ...needs("meetings:read"),
+  request: body(ContextRequest),
+  responses: { 200: json(z.object({ matches: z.array(Match) }), "Candidate meetings, best first"), ...errors },
+});
+
+export const createRecording = createRoute({
+  method: "post", path: "/v1/recordings", operationId: "createRecording", tags: ["recorder"],
+  summary: "Start a recording", description: "Idempotent by `id`. Without `meeting_id`, a meeting is created from the call's link, app and title.",
+  ...needs("meetings:write"),
+  request: body(CreateRecording),
+  responses: { 200: json(Recording, "The recording"), ...errors, ...notFound },
+});
+
+export const getRecording = createRoute({
+  method: "get", path: "/v1/recordings/{id}", operationId: "getRecording", tags: ["recordings"],
+  summary: "A recording", ...needs("meetings:read"),
+  request: { params: id },
+  responses: { 200: json(Recording, "The recording"), ...errors, ...notFound },
+});
+
+export const appendLive = createRoute({
+  method: "post", path: "/v1/recordings/{id}/live", operationId: "appendLive", tags: ["recorder"],
+  summary: "Append live transcript segments", description: "A batch past what is held is not stored: the answer tells the recorder where to resend from. After the final transcript, batches are ignored.",
+  ...needs("meetings:write"),
+  request: { params: id, ...body(LiveBatch) },
+  responses: { 200: json(LiveAck, "How many segments are held"), ...errors, ...notFound },
+});
+
+export const putTranscript = createRoute({
+  method: "put", path: "/v1/recordings/{id}/transcript", operationId: "putTranscript", tags: ["recorder"],
+  summary: "Deliver the final transcript", description: "Replaces the live draft and ends the recording.",
+  ...needs("meetings:write"),
+  request: { params: id, ...body(FinalTranscript) },
+  responses: { 200: json(Transcript, "The stored transcript"), ...errors, ...notFound },
+});
+
+export const getTranscript = createRoute({
+  method: "get", path: "/v1/recordings/{id}/transcript", operationId: "getTranscript", tags: ["recordings"],
+  summary: "A recording's transcript (live or final)", ...needs("transcripts:read"),
+  request: { params: id },
+  responses: { 200: json(Transcript, "The transcript"), ...errors, ...notFound },
+});
+
+const trackParams = z.object({ id: z.string().uuid(), kind: z.enum(["mix", "mic_hq"]) });
+const audio = { "audio/mp4": { schema: z.string().openapi({ format: "binary" }) }, "audio/ogg": { schema: z.string().openapi({ format: "binary" }) }, "audio/flac": { schema: z.string().openapi({ format: "binary" }) } };
+
+export const putTrack = createRoute({
+  method: "put", path: "/v1/recordings/{id}/tracks/{kind}", operationId: "putTrack", tags: ["recorder"],
+  summary: "Upload an audio track", description: "`mix`: both channels for playback (AAC). `mic_hq`: the recorder's own microphone at 48 kHz (Opus or FLAC).",
+  ...needs("meetings:write"),
+  request: { params: trackParams, body: { content: audio, required: true } },
+  responses: { 200: json(Track, "The stored track"), 415: json(ErrorBody, "Unsupported audio type"), ...errors, ...notFound },
+});
+
+export const getTrack = createRoute({
+  method: "get", path: "/v1/recordings/{id}/tracks/{kind}", operationId: "getTrack", tags: ["recordings"],
+  summary: "Download an audio track", description: "Redirects to a short-lived URL, or serves the bytes.",
+  ...needs("audio:read"),
+  request: { params: trackParams },
+  responses: { 200: { content: audio, description: "The audio" }, 302: { description: "Short-lived download URL" }, ...errors, ...notFound },
 });

@@ -1,0 +1,151 @@
+// Meetings and recordings: what the recorder delivers (context → recording → live batches → final transcript →
+// audio) and how anyone with the right scope reads it back. Every query is scoped to the token's workspace.
+import type { OpenAPIHono } from "@hono/zod-openapi";
+import { routes } from "@recordem/contract";
+import { meetings, recordings, tracks, transcripts, type Db, type Segment } from "@recordem/db";
+import { and, asc, eq, lte, sql } from "drizzle-orm";
+import { HTTPException } from "hono/http-exception";
+import type { Actor, Env } from "./auth";
+import { callKey } from "./callkey";
+import { storage } from "./storage";
+import { meetingView, recordingView, trackView, transcriptView } from "./views";
+
+const notFound = (what: string) => new HTTPException(404, { res: Response.json({ error: "not_found", message: `${what} not found` }, { status: 404 }) });
+const forbidden = (message: string) => new HTTPException(403, { res: Response.json({ error: "forbidden", message }, { status: 403 }) });
+
+const SLACK_MS = 20 * 60_000;            // a call may start a bit early or run over its slot
+const NEAR_MS = 12 * 3600_000;           // a call link is matched to meetings within half a day
+
+export function mount(app: OpenAPIHono<Env>, db: Db) {
+  async function recording(a: Actor, id: string, write = false) {
+    const [r] = await db.select().from(recordings).where(and(eq(recordings.id, id), eq(recordings.workspaceId, a.workspace)));
+    if (!r) throw notFound("recording");
+    if (write && r.owner !== a.subject) throw forbidden("only who recorded it can write to this recording");
+    return r;
+  }
+  async function full(r: typeof recordings.$inferSelect) {
+    const [ts, [t]] = await Promise.all([
+      db.select().from(tracks).where(eq(tracks.recordingId, r.id)),
+      db.select({ status: transcripts.status }).from(transcripts).where(eq(transcripts.recordingId, r.id)),
+    ]);
+    return recordingView(r, ts, t ?? null);
+  }
+
+  app.openapi(routes.getMeeting, async (c) => {
+    const a = c.get("actor");
+    const [m] = await db.select().from(meetings).where(and(eq(meetings.id, c.req.valid("param").id), eq(meetings.workspaceId, a.workspace)));
+    if (!m) throw notFound("meeting");
+    const rs = await db.select().from(recordings).where(eq(recordings.meetingId, m.id)).orderBy(asc(recordings.startedAt));
+    return c.json({ ...meetingView(m), recordings: await Promise.all(rs.map(full)) }, 200);
+  });
+
+  app.openapi(routes.meetingContext, async (c) => {
+    const a = c.get("actor");
+    const b = c.req.valid("json");
+    const at = new Date(b.at ?? Date.now());
+    const key = callKey(b.url) ?? callKey(b.title);
+    const near = await db.select().from(meetings).where(and(
+      eq(meetings.workspaceId, a.workspace),
+      lte(meetings.startsAt, new Date(at.getTime() + NEAR_MS)),
+      sql`coalesce(${meetings.endsAt}, ${meetings.startsAt} + interval '2 hours') >= ${new Date(at.getTime() - NEAR_MS).toISOString()}::timestamptz`,
+    )).orderBy(sql`abs(extract(epoch from ${meetings.startsAt} - ${at.toISOString()}::timestamptz))`);
+    const now = (m: (typeof near)[number]) =>
+      m.startsAt.getTime() - SLACK_MS <= at.getTime() && at.getTime() <= (m.endsAt ?? new Date(m.startsAt.getTime() + 2 * 3600_000)).getTime() + SLACK_MS;
+    const byLink = key ? near.filter((m) => m.callKey === key) : [];
+    const byTime = near.filter((m) => !byLink.includes(m) && m.createdBy === a.subject && now(m));
+    const match = (m: (typeof near)[number], matched_by: "link" | "time") =>
+      ({ meeting_id: m.id, title: m.title, starts_at: m.startsAt.toISOString(), matched_by });
+    return c.json({ matches: [...byLink.map((m) => match(m, "link")), ...byTime.map((m) => match(m, "time"))] }, 200);
+  });
+
+  app.openapi(routes.createRecording, async (c) => {
+    const a = c.get("actor");
+    const b = c.req.valid("json");
+    const [prev] = await db.select().from(recordings).where(eq(recordings.id, b.id));
+    if (prev) {
+      if (prev.workspaceId !== a.workspace || prev.owner !== a.subject) throw forbidden("this recording id is taken");
+      return c.json(await full(prev), 200);
+    }
+    let meetingId = b.meeting_id ?? null;
+    if (meetingId) {
+      const [m] = await db.select({ id: meetings.id }).from(meetings).where(and(eq(meetings.id, meetingId), eq(meetings.workspaceId, a.workspace)));
+      if (!m) throw notFound("meeting");
+    } else {
+      const [m] = await db.insert(meetings).values({
+        workspaceId: a.workspace, title: b.title ?? null, callKey: callKey(b.url) ?? callKey(b.title), app: b.app ?? null,
+        startsAt: new Date(b.started_at), createdBy: a.subject,
+      }).returning({ id: meetings.id });
+      meetingId = m.id;
+    }
+    const [r] = await db.insert(recordings).values({
+      id: b.id, workspaceId: a.workspace, meetingId, owner: a.subject, client: a.client, startedAt: new Date(b.started_at),
+    }).returning();
+    return c.json(await full(r), 200);
+  });
+
+  app.openapi(routes.getRecording, async (c) => c.json(await full(await recording(c.get("actor"), c.req.valid("param").id)), 200));
+
+  app.openapi(routes.appendLive, async (c) => {
+    const a = c.get("actor");
+    const r = await recording(a, c.req.valid("param").id, true);
+    const b = c.req.valid("json");
+    const stop = !!r.stopRequestedAt;
+    const [t] = await db.select().from(transcripts).where(eq(transcripts.recordingId, r.id));
+    if (t?.status === "final") return c.json({ n: b.from + b.segments.length, stop: false }, 200);
+    const held = t?.segments ?? [];
+    if (b.from > held.length) return c.json({ n: held.length, stop }, 200);
+    const segments: Segment[] = [...held.slice(0, b.from), ...b.segments];
+    await db.insert(transcripts).values({ recordingId: r.id, workspaceId: a.workspace, status: "live", segments })
+      .onConflictDoUpdate({ target: transcripts.recordingId, set: { segments, updatedAt: new Date() } });
+    if (b.ended && !r.endedAt) await db.update(recordings).set({ endedAt: new Date() }).where(eq(recordings.id, r.id));
+    return c.json({ n: segments.length, stop }, 200);
+  });
+
+  app.openapi(routes.putTranscript, async (c) => {
+    const a = c.get("actor");
+    const r = await recording(a, c.req.valid("param").id, true);
+    const b = c.req.valid("json");
+    const segments = [...b.segments].sort((x, y) => x.start_ms - y.start_ms);
+    const values = { status: "final" as const, language: b.language ?? null, model: b.model ?? null, segments, updatedAt: new Date() };
+    const [t] = await db.insert(transcripts).values({ recordingId: r.id, workspaceId: a.workspace, ...values })
+      .onConflictDoUpdate({ target: transcripts.recordingId, set: values }).returning();
+    const endedAt = new Date(b.ended_at);
+    await db.update(recordings).set({ endedAt }).where(eq(recordings.id, r.id));
+    await db.update(meetings).set({ endsAt: sql`greatest(${meetings.endsAt}, ${endedAt.toISOString()}::timestamptz)` })
+      .where(eq(meetings.id, r.meetingId));
+    return c.json(transcriptView(t), 200);
+  });
+
+  app.openapi(routes.getTranscript, async (c) => {
+    const r = await recording(c.get("actor"), c.req.valid("param").id);
+    const [t] = await db.select().from(transcripts).where(eq(transcripts.recordingId, r.id));
+    if (!t) throw notFound("transcript");
+    return c.json(transcriptView(t), 200);
+  });
+
+  const AUDIO = new Set(["audio/mp4", "audio/ogg", "audio/flac"]);
+
+  app.openapi(routes.putTrack, async (c) => {
+    const a = c.get("actor");
+    const { id, kind } = c.req.valid("param");
+    const r = await recording(a, id, true);
+    const type = (c.req.header("content-type") ?? "").split(";")[0].trim();
+    if (!AUDIO.has(type)) return c.json({ error: "unsupported_media_type", message: `audio/mp4, audio/ogg or audio/flac, not ${type || "nothing"}` }, 415);
+    const ext = { "audio/mp4": "m4a", "audio/ogg": "ogg", "audio/flac": "flac" }[type];
+    const key = `w/${a.workspace}/m/${r.meetingId}/r/${r.id}/${kind}.${ext}`;
+    const bytes = await storage.put(key, await c.req.blob(), type);
+    const values = { key, contentType: type, bytes, createdAt: new Date() };
+    const [t] = await db.insert(tracks).values({ recordingId: r.id, kind, workspaceId: a.workspace, ...values })
+      .onConflictDoUpdate({ target: [tracks.recordingId, tracks.kind], set: values }).returning();
+    return c.json(trackView(t), 200);
+  });
+
+  app.openapi(routes.getTrack, async (c) => {
+    const { id, kind } = c.req.valid("param");
+    const r = await recording(c.get("actor"), id);
+    const [t] = await db.select().from(tracks).where(and(eq(tracks.recordingId, r.id), eq(tracks.kind, kind)));
+    if (!t) throw notFound("track");
+    return (await storage.serve(t.key, t.contentType)) as never;
+  });
+}
+
