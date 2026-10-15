@@ -1,0 +1,19 @@
+{
+  "name": "recordem",
+  "private": true,
+  "type": "module",
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev": "bun --filter '@recordem/auth' --filter '@recordem/api' dev",
+    "db:generate": "bun --filter @recordem/db db:generate",
+    "db:migrate": "bun --filter @recordem/db db:migrate && bun --filter @recordem/auth db:migrate",
+    "openapi": "bun --filter @recordem/contract openapi",
+    "smoke": "bun scripts/smoke.ts",
+    "typecheck": "bun --filter '*' typecheck"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.11",
+    "@types/pg": "^8.23.1",
+    "typescript": "5.9.3"
+  }
+}

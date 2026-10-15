@@ -1,0 +1,21 @@
+{
+  "name": "@recordem/auth",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "db:migrate": "auth migrate --config src/auth.ts -y",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@better-auth/oauth-provider": "1.7.7",
+    "@recordem/contract": "workspace:*",
+    "better-auth": "1.7.7",
+    "hono": "4.13.13",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "auth": "1.7.7"
+  }
+}

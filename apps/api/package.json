@@ -1,0 +1,19 @@
+{
+  "name": "@recordem/api",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@hono/zod-openapi": "1.6.3",
+    "@recordem/contract": "workspace:*",
+    "@recordem/db": "workspace:*",
+    "drizzle-orm": "0.45.4",
+    "hono": "4.13.13",
+    "jose": "6.2.12",
+    "zod": "4.6.7"
+  }
+}

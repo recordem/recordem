@@ -1,0 +1,17 @@
+# Dev and self-hosting dependencies. The apps run on the host in dev (bun run dev).
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: recordem
+      POSTGRES_PASSWORD: recordem
+      POSTGRES_DB: recordem
+    ports: ["39420:5432"]
+    volumes:
+      - pg:/var/lib/postgresql/data
+      - ./docker/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+  redis:
+    image: redis:7-alpine
+    ports: ["39421:6379"]
+volumes:
+  pg:
