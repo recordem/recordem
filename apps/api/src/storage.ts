@@ -2,7 +2,7 @@
 // folder on disk, so a self-hosted server needs nothing else to start. Players get short-lived URLs: presigned by S3,
 // or signed here (HMAC with API_SECRET) and served by `files` with Range support, so an <audio> element can seek.
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { mkdir } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
 const SECRET = process.env.API_SECRET ?? (() => { throw new Error("API_SECRET is not set"); })();
@@ -14,6 +14,8 @@ export interface Storage {
   serve(key: string, contentType: string): Promise<Response>;
   /** A URL that works without a token for `ttl` seconds; `base` is the API's public origin as the caller sees it. */
   url(key: string, ttl: number, base: string): string;
+  /** Removes the object; a missing one is not an error. */
+  delete(key: string): Promise<void>;
 }
 
 function s3(): Storage {
@@ -31,6 +33,7 @@ function s3(): Storage {
       return Response.redirect(client.presign(key, { expiresIn: 300 }), 302);
     },
     url: (key, ttl) => client.presign(key, { expiresIn: ttl }),
+    delete: (key) => client.delete(key),
   };
 }
 
@@ -48,6 +51,9 @@ function disk(root: string): Storage {
     async serve(key, contentType) {
       const f = Bun.file(path(key));
       return (await f.exists()) ? new Response(f, { headers: { "content-type": contentType } }) : new Response(null, { status: 404 });
+    },
+    async delete(key) {
+      await rm(path(key), { force: true });
     },
     url(key, ttl, base) {
       const exp = Math.floor(Date.now() / 1000) + ttl;

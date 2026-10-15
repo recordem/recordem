@@ -91,3 +91,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 .meeting-head h1.title:hover { background: var(--soft); }
 .title-input { font: inherit; font-size: 26px; font-weight: 700; letter-spacing: -0.01em; width: 100%; margin: 0 0 4px -6px; padding: 0 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--fg); }
 .tabs .split { margin-left: auto; }
+button.danger { color: var(--accent); }
+button.danger:hover { background: var(--accent-soft); border-color: var(--accent); }
+.meeting-head .meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.meeting-head .meta button { order: 2; margin-left: auto; }

@@ -100,10 +100,10 @@ export const TrackUrl = z.object({
 
 export const StreamEvent = z.object({
   id: z.string().openapi({ description: "Event id (also the SSE id)" }),
-  type: z.enum(["recording.created", "recording.ended", "recording.stop_requested", "transcript.live", "transcript.final", "track.ready"]),
+  type: z.enum(["recording.created", "recording.ended", "recording.stop_requested", "recording.deleted", "meeting.deleted", "transcript.live", "transcript.final", "track.ready"]),
   at: datetime(),
   meeting_id: z.string().uuid(),
-  recording_id: z.string().uuid(),
+  recording_id: z.string().uuid().nullable().openapi({ description: "null for meeting.deleted" }),
   data: z.record(z.string(), z.unknown()).openapi({ description: "transcript.live: {from, segments}; track.ready: Track; others: {}" }),
 }).openapi("StreamEvent");
 

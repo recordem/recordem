@@ -3,7 +3,7 @@
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import { routes } from "@recordem/contract";
 import { meetings, recordings, tracks, transcripts, type Db, type Segment } from "@recordem/db";
-import { and, asc, eq, lte, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, lte, sql } from "drizzle-orm";
 import { HTTPException } from "hono/http-exception";
 import { streamSSE } from "hono/streaming";
 import type { Actor, Env } from "./auth";
@@ -128,6 +128,43 @@ export function mount(app: OpenAPIHono<Env>, db: Db) {
     });
     await publish(a.workspace, { type: "recording.created", meeting_id: moved.meetingId, recording_id: moved.id, data: {} });
     return c.json(await full(moved), 200);
+  });
+
+  /** Audio of these recordings, removed from storage after their rows are gone (a failure only leaves an orphan file). */
+  async function dropAudio(recordingIds: string[]) {
+    if (!recordingIds.length) return [];
+    return db.select({ key: tracks.key }).from(tracks).where(inArray(tracks.recordingId, recordingIds));
+  }
+  const removeFiles = (keys: { key: string }[]) =>
+    Promise.allSettled(keys.map((k) => storage.delete(k.key))).then((rs) => rs.forEach((r) => r.status === "rejected" && console.error("storage delete:", r.reason)));
+
+  app.openapi(routes.deleteRecording, async (c) => {
+    const a = c.get("actor");
+    const r = await recording(a, c.req.valid("param").id, true);
+    const keys = await dropAudio([r.id]);
+    const meetingGone = await db.transaction(async (tx) => {
+      await tx.delete(recordings).where(eq(recordings.id, r.id));    // transcript and tracks cascade
+      const left = await tx.select({ id: recordings.id }).from(recordings).where(eq(recordings.meetingId, r.meetingId));
+      if (!left.length) await tx.delete(meetings).where(eq(meetings.id, r.meetingId));
+      return !left.length;
+    });
+    await removeFiles(keys);
+    await publish(a.workspace, { type: "recording.deleted", meeting_id: r.meetingId, recording_id: r.id, data: {} });
+    if (meetingGone) await publish(a.workspace, { type: "meeting.deleted", meeting_id: r.meetingId, recording_id: null, data: {} });
+    return c.body(null, 204);
+  });
+
+  app.openapi(routes.deleteMeeting, async (c) => {
+    const a = c.get("actor");
+    const [m] = await db.select().from(meetings).where(and(eq(meetings.id, c.req.valid("param").id), eq(meetings.workspaceId, a.workspace)));
+    if (!m) throw notFound("meeting");
+    const rs = await db.select({ id: recordings.id, owner: recordings.owner }).from(recordings).where(eq(recordings.meetingId, m.id));
+    if (rs.some((r) => r.owner !== a.subject)) throw forbidden("someone else's recording is in this meeting");
+    const keys = await dropAudio(rs.map((r) => r.id));
+    await db.delete(meetings).where(eq(meetings.id, m.id));            // recordings, transcripts, tracks cascade
+    await removeFiles(keys);
+    await publish(a.workspace, { type: "meeting.deleted", meeting_id: m.id, recording_id: null, data: {} });
+    return c.body(null, 204);
   });
 
   app.openapi(routes.getRecording, async (c) => c.json(await full(await recording(c.get("actor"), c.req.valid("param").id)), 200));

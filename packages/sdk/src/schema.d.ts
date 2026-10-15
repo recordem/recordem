@@ -44,23 +44,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/me": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Who the token is */
-        get: operations["getMe"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/meetings/{id}": {
         parameters: {
             query?: never;
@@ -72,7 +55,11 @@ export interface paths {
         get: operations["getMeeting"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete a meeting
+         * @description With all its recordings, transcripts and audio. Only when every recording in it is yours.
+         */
+        delete: operations["deleteMeeting"];
         options?: never;
         head?: never;
         /** Change a meeting (its title) */
@@ -88,6 +75,27 @@ export interface paths {
         };
         /** A recording */
         get: operations["getRecording"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete a recording
+         * @description Only who recorded it. Its transcript and audio go with it; a meeting left empty is removed too.
+         */
+        delete: operations["deleteRecording"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Who the token is */
+        get: operations["getMe"];
         put?: never;
         post?: never;
         delete?: never;
@@ -418,13 +426,16 @@ export interface components {
             /** @description Event id (also the SSE id) */
             id: string;
             /** @enum {string} */
-            type: "recording.created" | "recording.ended" | "recording.stop_requested" | "transcript.live" | "transcript.final" | "track.ready";
+            type: "recording.created" | "recording.ended" | "recording.stop_requested" | "recording.deleted" | "meeting.deleted" | "transcript.live" | "transcript.final" | "track.ready";
             /** Format: date-time */
             at: string;
             /** Format: uuid */
             meeting_id: string;
-            /** Format: uuid */
-            recording_id: string;
+            /**
+             * Format: uuid
+             * @description null for meeting.deleted
+             */
+            recording_id: string | null;
             /** @description transcript.live: {from, segments}; track.ready: Track; others: {} */
             data: {
                 [key: string]: unknown;
@@ -547,22 +558,24 @@ export interface operations {
             };
         };
     };
-    getMe: {
+    getMeeting: {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                id: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description The token's subject, workspace and scopes */
+            /** @description The meeting */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Me"];
+                    "application/json": components["schemas"]["MeetingDetail"];
                 };
             };
             /** @description Missing or invalid token */
@@ -583,9 +596,18 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            /** @description Not found in this workspace */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
-    getMeeting: {
+    deleteMeeting: {
         parameters: {
             query?: never;
             header?: never;
@@ -596,14 +618,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The meeting */
-            200: {
+            /** @description Deleted, with its transcript and audio */
+            204: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": components["schemas"]["MeetingDetail"];
-                };
+                content?: never;
             };
             /** @description Missing or invalid token */
             401: {
@@ -727,6 +747,91 @@ export interface operations {
             };
             /** @description Not found in this workspace */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteRecording: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted, with its transcript and audio */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing or invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Token lacks a required scope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found in this workspace */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getMe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The token's subject, workspace and scopes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Me"];
+                };
+            };
+            /** @description Missing or invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Token lacks a required scope */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

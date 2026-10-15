@@ -145,6 +145,14 @@ step("the first meeting keeps its recording", left.recordings.length === 1);
 r = await call("POST", `/v1/recordings/${rec2}/move`, { meeting_id: rec.meeting_id });
 step("move back: the emptied meeting is gone", r.ok && (await call("GET", `/v1/meetings/${mv.meeting_id}`)).status === 404);
 
+// deleting: a recording of its own meeting takes the meeting along; a meeting goes with its recordings and audio
+const rec3 = crypto.randomUUID();
+const m3 = await (await call("POST", "/v1/recordings", { id: rec3, started_at: new Date().toISOString(), title: "To delete" })).json() as { meeting_id: string };
+await fetch(`${API}/v1/recordings/${rec3}/tracks/mix`, { method: "PUT", headers: { ...auth.headers, "content-type": "audio/mp4" }, body: new Uint8Array(64) });
+r = await call("DELETE", `/v1/recordings/${rec3}`);
+step("delete a recording", r.status === 204 && (await call("GET", `/v1/recordings/${rec3}`)).status === 404);
+step("its emptied meeting is gone", (await call("GET", `/v1/meetings/${m3.meeting_id}`)).status === 404);
+
 // 8. another person, in their own workspace, sees none of it
 jar.clear();
 let res2 = await go(`${AUTH}/api/auth/oauth2/authorize?${q}`);
@@ -160,3 +168,10 @@ step("other workspace: list is empty", ((await (await fetch(`${API}/v1/meetings`
 const steal = await fetch(`${API}/v1/recordings`, { method: "POST", headers: { ...other.headers, "content-type": "application/json" },
   body: JSON.stringify({ id: recId, started_at: startedAt }) });
 step("other workspace: can't take the recording id", steal.status === 403);
+step("other workspace: can't delete it", (await fetch(`${API}/v1/recordings/${recId}`, { method: "DELETE", ...other })).status === 404);
+
+// 9. the owner deletes the whole meeting: recordings, transcript and audio go with it
+r = await call("DELETE", `/v1/meetings/${rec.meeting_id}`);
+step("delete the meeting", r.status === 204);
+step("its recording is gone", (await call("GET", `/v1/recordings/${recId}`)).status === 404);
+step("its audio link no longer serves", (await fetch(tu.url)).status === 404);

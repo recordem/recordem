@@ -23,6 +23,18 @@ export function MeetingPage({ id }: { id: string }) {
     if (error) setError(error.message); else navigate(`/m/${data.meeting_id}`);
   };
 
+  const removeRecording = async (recordingId: string) => {
+    if (!confirm("Delete this recording, its transcript and audio? This can't be undone.")) return;
+    const { error } = await api.DELETE("/v1/recordings/{id}", { params: { path: { id: recordingId } } });
+    if (error) setError(error.message); else { setPick(null); void load(); }
+  };
+  const removeMeeting = async () => {
+    const n = meeting?.recordings.length ?? 0;
+    if (!confirm(`Delete this meeting${n ? ` and its ${n > 1 ? `${n} recordings` : "recording"} (transcripts and audio)` : ""}? This can't be undone.`)) return;
+    const { error } = await api.DELETE("/v1/meetings/{id}", { params: { path: { id } } });
+    if (error) setError(error.message); else navigate("/");
+  };
+
   if (error) return <Frame><p className="error">{error}</p></Frame>;
   if (!meeting) return <Frame><p className="muted">Loading…</p></Frame>;
   const rec = meeting.recordings.find((r) => r.id === pick) ?? meeting.recordings.at(-1);
@@ -31,7 +43,8 @@ export function MeetingPage({ id }: { id: string }) {
     <Frame>
       <div className="meeting-head">
         <Title meeting={meeting} onSaved={(m) => setMeeting({ ...meeting, ...m })} />
-        <p className="muted">
+        <p className="muted meta">
+          <button className="ghost small danger" onClick={removeMeeting}>Delete meeting</button>
           {[day(new Date(meeting.starts_at)), time(meeting.starts_at), duration(meeting.starts_at, meeting.ends_at), callApp(meeting.call_key)].filter(Boolean).join(" · ")}
         </p>
         {meeting.recordings.length > 1 && rec && (
@@ -40,6 +53,7 @@ export function MeetingPage({ id }: { id: string }) {
               <button key={r.id} className={r.id === rec.id ? "" : "ghost"} onClick={() => setPick(r.id)}>{time(r.started_at)}</button>
             ))}
             <button className="ghost small split" onClick={() => split(rec.id)} title="This recording is another call">Move to its own meeting</button>
+            <button className="ghost small danger" onClick={() => removeRecording(rec.id)}>Delete this recording</button>
           </div>
         )}
       </div>

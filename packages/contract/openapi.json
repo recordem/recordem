@@ -558,6 +558,8 @@
               "recording.created",
               "recording.ended",
               "recording.stop_requested",
+              "recording.deleted",
+              "meeting.deleted",
               "transcript.live",
               "transcript.final",
               "track.ready"
@@ -572,8 +574,12 @@
             "format": "uuid"
           },
           "recording_id": {
-            "type": "string",
-            "format": "uuid"
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "null for meeting.deleted"
           },
           "data": {
             "type": "object",
@@ -762,29 +768,38 @@
         }
       }
     },
-    "/v1/me": {
-      "get": {
-        "operationId": "getMe",
+    "/v1/meetings/{id}": {
+      "delete": {
+        "operationId": "deleteMeeting",
         "tags": [
-          "identity"
+          "meetings"
         ],
-        "summary": "Who the token is",
+        "summary": "Delete a meeting",
+        "description": "With all its recordings, transcripts and audio. Only when every recording in it is yours.",
         "security": [
           {
-            "oauth2": []
+            "oauth2": [
+              "meetings:write"
+            ]
           }
         ],
-        "x-scopes": [],
+        "x-scopes": [
+          "meetings:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
         "responses": {
-          "200": {
-            "description": "The token's subject, workspace and scopes",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Me"
-                }
-              }
-            }
+          "204": {
+            "description": "Deleted, with its transcript and audio"
           },
           "401": {
             "description": "Missing or invalid token",
@@ -805,11 +820,19 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "Not found in this workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
-      }
-    },
-    "/v1/meetings/{id}": {
+      },
       "get": {
         "operationId": "getMeeting",
         "tags": [
@@ -962,6 +985,70 @@
       }
     },
     "/v1/recordings/{id}": {
+      "delete": {
+        "operationId": "deleteRecording",
+        "tags": [
+          "recordings"
+        ],
+        "summary": "Delete a recording",
+        "description": "Only who recorded it. Its transcript and audio go with it; a meeting left empty is removed too.",
+        "security": [
+          {
+            "oauth2": [
+              "meetings:write"
+            ]
+          }
+        ],
+        "x-scopes": [
+          "meetings:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted, with its transcript and audio"
+          },
+          "401": {
+            "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token lacks a required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found in this workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
       "get": {
         "operationId": "getRecording",
         "tags": [
@@ -1022,6 +1109,53 @@
           },
           "404": {
             "description": "Not found in this workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/me": {
+      "get": {
+        "operationId": "getMe",
+        "tags": [
+          "identity"
+        ],
+        "summary": "Who the token is",
+        "security": [
+          {
+            "oauth2": []
+          }
+        ],
+        "x-scopes": [],
+        "responses": {
+          "200": {
+            "description": "The token's subject, workspace and scopes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token lacks a required scope",
             "content": {
               "application/json": {
                 "schema": {

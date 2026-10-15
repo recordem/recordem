@@ -146,3 +146,21 @@ export const moveRecording = createRoute({
   request: { params: id, ...body(MoveRecording) },
   responses: { 200: json(Recording, "The recording, in its new meeting"), ...errors, ...notFound },
 });
+
+const deleted = { 204: { description: "Deleted, with its transcript and audio" } };
+
+export const deleteRecording = createRoute({
+  method: "delete", path: "/v1/recordings/{id}", operationId: "deleteRecording", tags: ["recordings"],
+  summary: "Delete a recording", description: "Only who recorded it. Its transcript and audio go with it; a meeting left empty is removed too.",
+  ...needs("meetings:write"),
+  request: { params: id },
+  responses: { ...deleted, ...errors, ...notFound },
+});
+
+export const deleteMeeting = createRoute({
+  method: "delete", path: "/v1/meetings/{id}", operationId: "deleteMeeting", tags: ["meetings"],
+  summary: "Delete a meeting", description: "With all its recordings, transcripts and audio. Only when every recording in it is yours.",
+  ...needs("meetings:write"),
+  request: { params: id },
+  responses: { ...deleted, ...errors, ...notFound },
+});

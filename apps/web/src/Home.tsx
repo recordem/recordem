@@ -39,7 +39,7 @@ export function Home() {
       onEvent: (e) => {
         if (e.type === "transcript.live") setLive((s) => (s.has(e.meeting_id) ? s : new Set(s).add(e.meeting_id)));
         if (e.type === "recording.ended" || e.type === "transcript.final") setLive((s) => { const n = new Set(s); n.delete(e.meeting_id); return n; });
-        if (e.type === "recording.created" || e.type === "transcript.final") load();
+        if (e.type === "recording.created" || e.type === "transcript.final" || e.type === "recording.deleted" || e.type === "meeting.deleted") load();
       },
     });
     return () => ctl.abort();
