@@ -40,6 +40,10 @@ objc2-av-foundation = { version = "0.3", default-features = false, features = ["
 macos-accessibility-client = "0.0.1"
 # Reading the call app's mute button (mute.rs): only RunningApp, to find its process; already built for anlg-detect.
 cidre = { version = "0.15", default-features = false, features = ["app"] }
+# Who is in the call and who speaks (participants.rs): the participants crates next door (crates/, PARTICIPANTS.md).
+recordem-ax = { path = "../crates/ax" }
+recordem-scrape = { path = "../crates/scrape" }
+recordem-timeline = { path = "../crates/timeline" }
 
 tauri = { version = "2.11", features = ["tray-icon", "image-png", "macos-private-api"] }
 tauri-plugin-opener = "2.5"

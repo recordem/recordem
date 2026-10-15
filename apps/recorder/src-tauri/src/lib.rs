@@ -14,6 +14,7 @@ mod live;
 mod models;
 mod mute;
 mod oauth;
+mod participants;
 mod permissions;
 mod transcribe;
 
@@ -614,6 +615,10 @@ async fn start(app: AppHandle, meeting_id: Option<String>) -> Result<(), String>
         let app = app.clone();
         mute::watch(source, id, stop.clone(), move |m| set_muted(&app, m));
     }
+    // Who speaks, from the call app's window: names the voices after the call.
+    if let Some(id) = call.app_id.clone() {
+        participants::watch(id, dir.clone(), std::time::Instant::now(), stop.clone());
+    }
     let app2 = app.clone();
     let muted = st.muted.clone();
     tauri::async_runtime::spawn(async move {
@@ -758,6 +763,12 @@ async fn process(app: &AppHandle, dir: PathBuf, warning: Option<String>) {
                 Ok(Err(e)) => return set_phase(app, Phase::Failed { message: format!("transcription failed: {e}") }),
                 Err(e) => return set_phase(app, Phase::Failed { message: format!("transcription failed: {e}") }),
             };
+            // Names for the voices, from who the call app showed speaking. Kept next to the transcript until the
+            // contract carries them (PARTICIPANTS.md).
+            let named = participants::name_voices(&participants::read(&dir), &segments);
+            if !named.is_empty() {
+                let _ = write_json(&dir.join("speakers.json"), &participants::names(&named));
+            }
             let t = Transcript {
                 ended_at: meta.ended_at.clone().unwrap_or_else(now),
                 language: Some(spoken(&segments)),
