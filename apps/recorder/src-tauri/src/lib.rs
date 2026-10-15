@@ -5,6 +5,8 @@
 // Phases: setup → models → permissions → idle ⇄ detected → recording → processing → done | failed → idle.
 // A recording that couldn't be transcribed or sent stays in recordings/<id>/ and is resumed when the app opens.
 mod api;
+mod asr;
+mod bench;
 mod callurl;
 mod capture;
 mod config;
@@ -586,9 +588,9 @@ async fn start(app: AppHandle, meeting_id: Option<String>) -> Result<(), String>
     let (live_tx, live) = if cfg.live {
         let (frames_tx, frames) = std::sync::mpsc::channel();
         let (segs_tx, segs) = tokio::sync::mpsc::unbounded_channel();
-        let (langs, vocabulary) = (cfg.languages.clone(), cfg.vocabulary.clone());
+        let (langs, vocabulary, engine) = (cfg.languages.clone(), cfg.vocabulary.clone(), cfg.asr_live.clone());
         let worker = std::thread::spawn(move || {
-            if let Err(e) = live::transcribe(frames, segs_tx, &langs, &vocabulary) {
+            if let Err(e) = live::transcribe(frames, segs_tx, &langs, &vocabulary, &engine) {
                 eprintln!("live transcript stopped: {e}");
             }
         });
@@ -743,10 +745,12 @@ async fn process(app: &AppHandle, dir: PathBuf, warning: Option<String>) {
             st.progress.store(0, Ordering::Relaxed);
             set_phase(app, Phase::Processing { id: meta.id.clone(), progress: 0, step: "transcribing".into(), title: meta.title.clone() });
             let (d, lang, progress) = (dir.clone(), meta.language.clone(), st.progress.clone());
-            let vocabulary = config::load().vocabulary;
+            let c = config::load();
+            let (vocabulary, engine) = (c.vocabulary, c.asr_final);
+            let model = format!("{} + silero vad + pyannote", asr::describe(&engine));
             let segs = tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<_> {
                 let f = capture::files(&d);
-                transcribe::run(&capture::read(&f.mic)?, &capture::read(&f.system)?, &lang, &vocabulary, &progress)
+                transcribe::run(&capture::read(&f.mic)?, &capture::read(&f.system)?, &lang, &vocabulary, &engine, &progress)
             })
             .await;
             let segments = match segs {
@@ -757,7 +761,7 @@ async fn process(app: &AppHandle, dir: PathBuf, warning: Option<String>) {
             let t = Transcript {
                 ended_at: meta.ended_at.clone().unwrap_or_else(now),
                 language: Some(spoken(&segments)),
-                model: Some(models::MODEL_NAME.into()),
+                model: Some(model),
                 segments,
             };
             if let Err(e) = write_json(&tpath, &t) {
@@ -1043,4 +1047,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![status, get_config, save_config, login, logout, download_models, lookup, start, stop, toggle_mute, dismiss, show_main, open, open_live, version, request_permission, open_permission, permission_list, finish_onboarding])
         .run(tauri::generate_context!())
         .expect("error while running the recorder");
+}
+
+/// The asr-bench tool (src/bin/asr-bench.rs): engines compared on the same audio.
+pub fn asr_bench(args: Vec<String>) -> anyhow::Result<()> {
+    bench::main(args)
 }

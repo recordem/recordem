@@ -4,6 +4,16 @@ version = "0.1.0"
 edition = "2024"
 description = "Records a call on this Mac, transcribes it locally and delivers transcript and audio to a Recordem server"
 license = "MIT"
+# The app; src/bin/asr-bench.rs is a tool.
+default-run = "recordem-recorder"
+
+[features]
+# The asr-bench tool, out of the app bundle: cargo run --release --features bench --bin asr-bench -- …
+bench = []
+
+[[bin]]
+name = "asr-bench"
+required-features = ["bench"]
 
 [lib]
 name = "recorder_lib"

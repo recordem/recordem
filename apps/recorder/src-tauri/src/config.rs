@@ -50,6 +50,12 @@ pub struct Config {
     /// Extra words for Whisper (one per line).
     #[serde(default)]
     pub vocabulary: String,
+    /// Speech recognition engine for the live draft and for the pass after the call (asr.rs): "whisper", "parakeet",
+    /// "parakeet:ultra". Whisper reads Portuguese best in our tests; Parakeet is faster and leaves CPU and GPU to the call.
+    #[serde(default = "default_asr")]
+    pub asr_live: String,
+    #[serde(default = "default_asr")]
+    pub asr_final: String,
     /// The permissions step was seen through once (it comes back by itself if a required permission goes missing).
     #[serde(default)]
     pub onboarded: bool,
@@ -84,6 +90,10 @@ pub fn languages(s: &str) -> Vec<String> {
         }
     }
     if out.is_empty() { languages(DEFAULT_LANGUAGES) } else { out }
+}
+
+fn default_asr() -> String {
+    "whisper".into()
 }
 
 fn default_on_call() -> String {

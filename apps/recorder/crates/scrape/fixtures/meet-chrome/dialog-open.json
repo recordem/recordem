@@ -1,0 +1,1051 @@
+{
+ "role": "AXApplication",
+ "children": [
+  {
+   "role": "AXWindow",
+   "title": "Meet: abc-defg-hij - Camera and microphone recording - Google Chrome - Bruno",
+   "frame": {
+    "x": 0.0,
+    "y": 30.0,
+    "w": 1920.0,
+    "h": 980.0
+   },
+   "children": [
+    {
+     "role": "AXWebArea",
+     "role_description": "HTML content",
+     "title": "Meet: abc-defg-hij",
+     "frame": {
+      "x": 0.0,
+      "y": 117.0,
+      "w": 1920.0,
+      "h": 893.0
+     },
+     "children": [
+      {
+       "role": "AXGroup",
+       "subrole": "AXApplicationDialog",
+       "role_description": "dialog",
+       "title": "Ajuste a visualização",
+       "description": "Ajuste a visualização",
+       "dom_classes": [
+        "VfPpkd-P5QLlc"
+       ],
+       "frame": {
+        "x": 786.0,
+        "y": 317.0,
+        "w": 349.0,
+        "h": 494.0
+       },
+       "children": [
+        {
+         "role": "AXHeading",
+         "role_description": "heading",
+         "title": "Ajuste a visualização",
+         "dom_id": "c658",
+         "dom_classes": [
+          "VfPpkd-k2Wrsb"
+         ],
+         "frame": {
+          "x": 786.0,
+          "y": 317.0,
+          "w": 349.0,
+          "h": 60.0
+         },
+         "children": [
+          {
+           "role": "AXGroup",
+           "subrole": "AXEmptyGroup",
+           "role_description": "group",
+           "frame": {
+            "x": 1134.0,
+            "y": 317.0,
+            "w": 1.0,
+            "h": 40.0
+           }
+          },
+          {
+           "role": "AXStaticText",
+           "role_description": "text",
+           "value": "Ajuste a visualização",
+           "frame": {
+            "x": 810.0,
+            "y": 341.0,
+            "w": 155.0,
+            "h": 21.0
+           }
+          }
+         ]
+        },
+        {
+         "role": "AXGroup",
+         "role_description": "group",
+         "dom_classes": [
+          "VfPpkd-zMU9ub-suEOdc-sM5MNb"
+         ],
+         "frame": {
+          "x": 1075.0,
+          "y": 326.0,
+          "w": 48.0,
+          "h": 48.0
+         },
+         "children": [
+          {
+           "role": "AXButton",
+           "role_description": "button",
+           "title": "Close",
+           "description": "Close",
+           "dom_classes": [
+            "VfPpkd-Bz112c-LgbsSe",
+            "yHy1rc",
+            "eT1oJ",
+            "mN1ivc",
+            "VfPpkd-zMU9ub"
+           ],
+           "frame": {
+            "x": 1075.0,
+            "y": 326.0,
+            "w": 48.0,
+            "h": 48.0
+           }
+          }
+         ]
+        },
+        {
+         "role": "AXGroup",
+         "role_description": "group",
+         "dom_classes": [
+          "XZyLDe"
+         ],
+         "frame": {
+          "x": 810.0,
+          "y": 377.0,
+          "w": 301.0,
+          "h": 17.0
+         },
+         "children": [
+          {
+           "role": "AXStaticText",
+           "role_description": "text",
+           "value": "A seleção foi salva para as próximas reuniões",
+           "frame": {
+            "x": 810.0,
+            "y": 378.0,
+            "w": 257.0,
+            "h": 15.0
+           }
+          }
+         ]
+        },
+        {
+         "role": "AXRadioGroup",
+         "role_description": "radio group",
+         "title": "Ajuste a visualização",
+         "description": "Ajuste a visualização",
+         "dom_classes": [
+          "N2xCec"
+         ],
+         "frame": {
+          "x": 810.0,
+          "y": 393.0,
+          "w": 301.0,
+          "h": 239.0
+         },
+         "children": [
+          {
+           "role": "AXGroup",
+           "role_description": "group",
+           "dom_classes": [
+            "DxvcU"
+           ],
+           "frame": {
+            "x": 810.0,
+            "y": 407.0,
+            "w": 301.0,
+            "h": 49.0
+           },
+           "children": [
+            {
+             "role": "AXGroup",
+             "role_description": "group",
+             "dom_classes": [
+              "VfPpkd-dgl2Hf-ppHlrf-sM5MNb"
+             ],
+             "frame": {
+              "x": 810.0,
+              "y": 407.0,
+              "w": 48.0,
+              "h": 49.0
+             },
+             "children": [
+              {
+               "role": "AXGroup",
+               "role_description": "group",
+               "dom_classes": [
+                "GhEnC-GCYh9b",
+                "GhEnC-GCYh9b-OWXEXe-dgl2Hf"
+               ],
+               "frame": {
+                "x": 814.0,
+                "y": 411.0,
+                "w": 40.0,
+                "h": 41.0
+               },
+               "children": [
+                {
+                 "role": "AXRadioButton",
+                 "role_description": "radio button",
+                 "title": "Automático (dinâmico)",
+                 "dom_id": "ucc-249",
+                 "dom_classes": [
+                  "GhEnC-gBXA9-bMcfAe"
+                 ],
+                 "frame": {
+                  "x": 810.0,
+                  "y": 407.0,
+                  "w": 48.0,
+                  "h": 49.0
+                 }
+                },
+                {
+                 "role": "AXGroup",
+                 "subrole": "AXEmptyGroup",
+                 "role_description": "group",
+                 "dom_classes": [
+                  "GhEnC-RsCWK"
+                 ],
+                 "frame": {
+                  "x": 824.0,
+                  "y": 421.0,
+                  "w": 20.0,
+                  "h": 21.0
+                 },
+                 "children": [
+                  {
+                   "role": "AXGroup",
+                   "subrole": "AXEmptyGroup",
+                   "role_description": "group",
+                   "frame": {
+                    "x": 1134.0,
+                    "y": 431.0,
+                    "w": 1.0,
+                    "h": 0.0
+                   }
+                  },
+                  {
+                   "role": "AXGroup",
+                   "subrole": "AXEmptyGroup",
+                   "role_description": "group",
+                   "dom_classes": [
+                    "GhEnC-wVo5xe-LkdAo"
+                   ],
+                   "frame": {
+                    "x": 824.0,
+                    "y": 421.0,
+                    "w": 20.0,
+                    "h": 21.0
+                   }
+                  },
+                  {
+                   "role": "AXGroup",
+                   "subrole": "AXEmptyGroup",
+                   "role_description": "group",
+                   "dom_classes": [
+                    "GhEnC-Z5TpLc-LkdAo"
+                   ],
+                   "frame": {
+                    "x": 829.0,
+                    "y": 426.0,
+                    "w": 10.0,
+                    "h": 11.0
+                   }
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "role": "AXStaticText",
+             "role_description": "text",
+             "value": "Automático (dinâmico)",
+             "frame": {
+              "x": 862.0,
+              "y": 423.0,
+              "w": 147.0,
+              "h": 17.0
+             }
+            }
+           ]
+          },
+          {
+           "role": "AXGroup",
+           "role_description": "group",
+           "dom_classes": [
+            "DxvcU"
+           ],
+           "frame": {
+            "x": 810.0,
+            "y": 461.0,
+            "w": 301.0,
+            "h": 49.0
+           },
+           "children": [
+            {
+             "role": "AXGroup",
+             "role_description": "group",
+             "dom_classes": [
+              "VfPpkd-dgl2Hf-ppHlrf-sM5MNb"
+             ],
+             "frame": {
+              "x": 810.0,
+              "y": 461.0,
+              "w": 48.0,
+              "h": 49.0
+             },
+             "children": [
+              {
+               "role": "AXGroup",
+               "role_description": "group",
+               "dom_classes": [
+                "GhEnC-GCYh9b",
+                "GhEnC-GCYh9b-OWXEXe-dgl2Hf"
+               ],
+               "frame": {
+                "x": 814.0,
+                "y": 465.0,
+                "w": 40.0,
+                "h": 41.0
+               },
+               "children": [
+                {
+                 "role": "AXRadioButton",
+                 "role_description": "radio button",
+                 "title": "Mosaico (legado)",
+                 "dom_id": "ucc-250",
+                 "dom_classes": [
+                  "GhEnC-gBXA9-bMcfAe"
+                 ],
+                 "frame": {
+                  "x": 810.0,
+                  "y": 461.0,
+                  "w": 48.0,
+                  "h": 49.0
+                 }
+                },
+                {
+                 "role": "AXGroup",
+                 "subrole": "AXEmptyGroup",
+                 "role_description": "group",
+                 "dom_classes": [
+                  "GhEnC-RsCWK"
+                 ],
+                 "frame": {
+                  "x": 824.0,
+                  "y": 475.0,
+                  "w": 20.0,
+                  "h": 21.0
+                 },
+                 "children": [
+                  {
+                   "role": "AXGroup",
+                   "subrole": "AXEmptyGroup",
+                   "role_description": "group",
+                   "frame": {
+                    "x": 1134.0,
+                    "y": 485.0,
+                    "w": 1.0,
+                    "h": 0.0
+                   }
+                  },
+                  {
+                   "role": "AXGroup",
+                   "subrole": "AXEmptyGroup",
+                   "role_description": "group",
+                   "dom_classes": [
+                    "GhEnC-wVo5xe-LkdAo"
+                   ],
+                   "frame": {
+                    "x": 824.0,
+                    "y": 475.0,
+                    "w": 20.0,
+                    "h": 21.0
+                   }
+                  },
+                  {
+                   "role": "AXGroup",
+                   "subrole": "AXEmptyGroup",
+                   "role_description": "group",
+                   "dom_classes": [
+                    "GhEnC-Z5TpLc-LkdAo"
+                   ],
+                   "frame": {
+                    "x": 1134.0,
+                    "y": 485.0,
+                    "w": 1.0,
+                    "h": 0.0
+                   }
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "role": "AXStaticText",
+             "role_description": "text",
+             "value": "Mosaico (legado)",
+             "frame": {
+              "x": 862.0,
+              "y": 477.0,
+              "w": 112.0,
+              "h": 17.0
+             }
+            }
+           ]
+          },
+          {
+           "role": "AXGroup",
+           "role_description": "group",
+           "dom_classes": [
+            "DxvcU"
+           ],
+           "frame": {
+            "x": 810.0,
+            "y": 515.0,
+            "w": 301.0,
+            "h": 49.0
+           },
+           "children": [
+            {
+             "role": "AXGroup",
+             "role_description": "group",
+             "dom_classes": [
+              "VfPpkd-dgl2Hf-ppHlrf-sM5MNb"
+             ],
+             "frame": {
+              "x": 810.0,
+              "y": 515.0,
+              "w": 48.0,
+              "h": 49.0
+             },
+             "children": [
+              {
+               "role": "AXGroup",
+               "role_description": "group",
+               "dom_classes": [
+                "GhEnC-GCYh9b",
+                "GhEnC-GCYh9b-OWXEXe-dgl2Hf"
+               ],
+               "frame": {
+                "x": 814.0,
+                "y": 519.0,
+                "w": 40.0,
+                "h": 41.0
+               },
+               "children": [
+                {
+                 "role": "AXRadioButton",
+                 "role_description": "radio button",
+                 "title": "Destaque",
+                 "dom_id": "ucc-251",
+                 "dom_classes": [
+                  "GhEnC-gBXA9-bMcfAe"
+                 ],
+                 "frame": {
+                  "x": 810.0,
+                  "y": 515.0,
+                  "w": 48.0,
+                  "h": 49.0
+                 }
+                },
+                {
+                 "role": "AXGroup",
+                 "subrole": "AXEmptyGroup",
+                 "role_description": "group",
+                 "dom_classes": [
+                  "GhEnC-RsCWK"
+                 ],
+                 "frame": {
+                  "x": 824.0,
+                  "y": 529.0,
+                  "w": 20.0,
+                  "h": 21.0
+                 },
+                 "children": [
+                  {
+                   "role": "AXGroup",
+                   "subrole": "AXEmptyGroup",
+                   "role_description": "group",
+                   "frame": {
+                    "x": 1134.0,
+                    "y": 539.0,
+                    "w": 1.0,
+                    "h": 0.0
+                   }
+                  },
+                  {
+                   "role": "AXGroup",
+                   "subrole": "AXEmptyGroup",
+                   "role_description": "group",
+                   "dom_classes": [
+                    "GhEnC-wVo5xe-LkdAo"
+                   ],
+                   "frame": {
+                    "x": 824.0,
+                    "y": 529.0,
+                    "w": 20.0,
+                    "h": 21.0
+                   }
+                  },
+                  {
+                   "role": "AXGroup",
+                   "subrole": "AXEmptyGroup",
+                   "role_description": "group",
+                   "dom_classes": [
+                    "GhEnC-Z5TpLc-LkdAo"
+                   ],
+                   "frame": {
+                    "x": 1134.0,
+                    "y": 539.0,
+                    "w": 1.0,
+                    "h": 0.0
+                   }
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "role": "AXStaticText",
+             "role_description": "text",
+             "value": "Destaque",
+             "frame": {
+              "x": 862.0,
+              "y": 531.0,
+              "w": 61.0,
+              "h": 17.0
+             }
+            }
+           ]
+          },
+          {
+           "role": "AXGroup",
+           "role_description": "group",
+           "dom_classes": [
+            "DxvcU"
+           ],
+           "frame": {
+            "x": 810.0,
+            "y": 569.0,
+            "w": 301.0,
+            "h": 49.0
+           },
+           "children": [
+            {
+             "role": "AXGroup",
+             "role_description": "group",
+             "dom_classes": [
+              "VfPpkd-dgl2Hf-ppHlrf-sM5MNb"
+             ],
+             "frame": {
+              "x": 810.0,
+              "y": 569.0,
+              "w": 48.0,
+              "h": 49.0
+             },
+             "children": [
+              {
+               "role": "AXGroup",
+               "role_description": "group",
+               "dom_classes": [
+                "GhEnC-GCYh9b",
+                "GhEnC-GCYh9b-OWXEXe-dgl2Hf"
+               ],
+               "frame": {
+                "x": 814.0,
+                "y": 573.0,
+                "w": 40.0,
+                "h": 41.0
+               },
+               "children": [
+                {
+                 "role": "AXRadioButton",
+                 "role_description": "radio button",
+                 "title": "Barra lateral",
+                 "dom_id": "ucc-252",
+                 "dom_classes": [
+                  "GhEnC-gBXA9-bMcfAe"
+                 ],
+                 "frame": {
+                  "x": 810.0,
+                  "y": 569.0,
+                  "w": 48.0,
+                  "h": 49.0
+                 }
+                },
+                {
+                 "role": "AXGroup",
+                 "subrole": "AXEmptyGroup",
+                 "role_description": "group",
+                 "dom_classes": [
+                  "GhEnC-RsCWK"
+                 ],
+                 "frame": {
+                  "x": 824.0,
+                  "y": 583.0,
+                  "w": 20.0,
+                  "h": 21.0
+                 },
+                 "children": [
+                  {
+                   "role": "AXGroup",
+                   "subrole": "AXEmptyGroup",
+                   "role_description": "group",
+                   "frame": {
+                    "x": 1134.0,
+                    "y": 593.0,
+                    "w": 1.0,
+                    "h": 0.0
+                   }
+                  },
+                  {
+                   "role": "AXGroup",
+                   "subrole": "AXEmptyGroup",
+                   "role_description": "group",
+                   "dom_classes": [
+                    "GhEnC-wVo5xe-LkdAo"
+                   ],
+                   "frame": {
+                    "x": 824.0,
+                    "y": 583.0,
+                    "w": 20.0,
+                    "h": 21.0
+                   }
+                  },
+                  {
+                   "role": "AXGroup",
+                   "subrole": "AXEmptyGroup",
+                   "role_description": "group",
+                   "dom_classes": [
+                    "GhEnC-Z5TpLc-LkdAo"
+                   ],
+                   "frame": {
+                    "x": 1134.0,
+                    "y": 593.0,
+                    "w": 1.0,
+                    "h": 0.0
+                   }
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "role": "AXStaticText",
+             "role_description": "text",
+             "value": "Barra lateral",
+             "frame": {
+              "x": 862.0,
+              "y": 585.0,
+              "w": 78.0,
+              "h": 17.0
+             }
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "role": "AXHeading",
+         "role_description": "heading",
+         "title": "Blocos",
+         "dom_classes": [
+          "V9H0dc"
+         ],
+         "frame": {
+          "x": 810.0,
+          "y": 645.0,
+          "w": 301.0,
+          "h": 21.0
+         },
+         "children": [
+          {
+           "role": "AXStaticText",
+           "role_description": "text",
+           "value": "Blocos",
+           "frame": {
+            "x": 810.0,
+            "y": 646.0,
+            "w": 45.0,
+            "h": 18.0
+           }
+          }
+         ]
+        },
+        {
+         "role": "AXGroup",
+         "role_description": "group",
+         "dom_classes": [
+          "XZyLDe"
+         ],
+         "frame": {
+          "x": 810.0,
+          "y": 665.0,
+          "w": 301.0,
+          "h": 33.0
+         },
+         "children": [
+          {
+           "role": "AXStaticText",
+           "role_description": "text",
+           "value": "Máximo de blocos para exibição, dependendo do tamanho da janela.",
+           "frame": {
+            "x": 810.0,
+            "y": 666.0,
+            "w": 274.0,
+            "h": 31.0
+           }
+          }
+         ]
+        },
+        {
+         "role": "AXImage",
+         "role_description": "image",
+         "dom_classes": [
+          "Hdh4hc",
+          "cIGbvc"
+         ],
+         "frame": {
+          "x": 810.0,
+          "y": 709.0,
+          "w": 19.0,
+          "h": 25.0
+         }
+        },
+        {
+         "role": "AXGroup",
+         "role_description": "group",
+         "dom_classes": [
+          "Yv7zQb",
+          "jXNAKd",
+          "lOFond",
+          "VjeIee",
+          "gyG0mb-SxecR",
+          "gyG0mb-SxecR-OWXEXe-K2kob-EJv4qd",
+          "gyG0mb-SxecR-OWXEXe-ALTDOd"
+         ],
+         "frame": {
+          "x": 841.0,
+          "y": 697.0,
+          "w": 239.0,
+          "h": 49.0
+         },
+         "children": [
+          {
+           "role": "AXGroup",
+           "subrole": "AXEmptyGroup",
+           "role_description": "group",
+           "dom_classes": [
+            "gyG0mb-yCQwvc"
+           ],
+           "frame": {
+            "x": 841.0,
+            "y": 717.0,
+            "w": 239.0,
+            "h": 9.0
+           },
+           "children": [
+            {
+             "role": "AXGroup",
+             "subrole": "AXEmptyGroup",
+             "role_description": "group",
+             "dom_classes": [
+              "gyG0mb-yCQwvc-OWXEXe-ssJRIf"
+             ],
+             "frame": {
+              "x": 841.0,
+              "y": 717.0,
+              "w": 239.0,
+              "h": 9.0
+             },
+             "children": [
+              {
+               "role": "AXGroup",
+               "subrole": "AXEmptyGroup",
+               "role_description": "group",
+               "dom_classes": [
+                "gyG0mb-yCQwvc-OWXEXe-VjRTR"
+               ],
+               "frame": {
+                "x": 841.0,
+                "y": 717.0,
+                "w": 45.0,
+                "h": 9.0
+               }
+              }
+             ]
+            },
+            {
+             "role": "AXGroup",
+             "subrole": "AXEmptyGroup",
+             "role_description": "group",
+             "dom_classes": [
+              "gyG0mb-yCQwvc-OWXEXe-UbuQg"
+             ],
+             "frame": {
+              "x": 841.0,
+              "y": 717.0,
+              "w": 239.0,
+              "h": 9.0
+             },
+             "children": [
+              {
+               "role": "AXGroup",
+               "subrole": "AXEmptyGroup",
+               "role_description": "group",
+               "dom_classes": [
+                "gyG0mb-yCQwvc-OWXEXe-ATw3zb"
+               ],
+               "frame": {
+                "x": 901.0,
+                "y": 717.0,
+                "w": 179.0,
+                "h": 9.0
+               }
+              }
+             ]
+            },
+            {
+             "role": "AXGroup",
+             "subrole": "AXEmptyGroup",
+             "role_description": "group",
+             "dom_classes": [
+              "gyG0mb-zD2WHb-EJv4qd"
+             ],
+             "frame": {
+              "x": 841.0,
+              "y": 717.0,
+              "w": 239.0,
+              "h": 9.0
+             }
+            }
+           ]
+          },
+          {
+           "role": "AXGroup",
+           "role_description": "group",
+           "dom_classes": [
+            "gyG0mb-UTM9ec",
+            "gyG0mb-UTM9ec-CpWD9d"
+           ],
+           "frame": {
+            "x": 885.0,
+            "y": 697.0,
+            "w": 17.0,
+            "h": 49.0
+           },
+           "children": [
+            {
+             "role": "AXGroup",
+             "subrole": "AXEmptyGroup",
+             "role_description": "group",
+             "dom_classes": [
+              "gyG0mb-UTM9ec-tmWYNe"
+             ],
+             "frame": {
+              "x": 891.0,
+              "y": 713.0,
+              "w": 5.0,
+              "h": 17.0
+             }
+            },
+            {
+             "role": "AXSlider",
+             "role_description": "slider",
+             "title": "Blocos",
+             "description": "Blocos",
+             "value": "9 blocos",
+             "dom_classes": [
+              "gyG0mb-YCNiv"
+             ],
+             "frame": {
+              "x": 869.0,
+              "y": 697.0,
+              "w": 49.0,
+              "h": 49.0
+             }
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "role": "AXImage",
+         "role_description": "image",
+         "dom_classes": [
+          "Hdh4hc",
+          "cIGbvc"
+         ],
+         "frame": {
+          "x": 1091.0,
+          "y": 709.0,
+          "w": 20.0,
+          "h": 25.0
+         }
+        },
+        {
+         "role": "AXGroup",
+         "role_description": "group",
+         "dom_id": "ucc-253",
+         "dom_classes": [
+          "QEv4Pb"
+         ],
+         "frame": {
+          "x": 810.0,
+          "y": 768.0,
+          "w": 262.0,
+          "h": 21.0
+         },
+         "children": [
+          {
+           "role": "AXStaticText",
+           "role_description": "text",
+           "value": "Ocultar blocos sem vídeo",
+           "frame": {
+            "x": 810.0,
+            "y": 769.0,
+            "w": 171.0,
+            "h": 18.0
+           }
+          }
+         ]
+        },
+        {
+         "role": "AXCheckBox",
+         "subrole": "AXSwitch",
+         "role_description": "switch",
+         "title": "Ocultar blocos sem vídeo",
+         "dom_id": "DeQTxb",
+         "dom_classes": [
+          "eBlXUe-scr2fc",
+          "eBlXUe-scr2fc-OWXEXe-uqeOfd"
+         ],
+         "frame": {
+          "x": 1072.0,
+          "y": 766.0,
+          "w": 39.0,
+          "h": 25.0
+         },
+         "children": [
+          {
+           "role": "AXGroup",
+           "subrole": "AXEmptyGroup",
+           "role_description": "group",
+           "dom_classes": [
+            "eBlXUe-l6JLsf"
+           ],
+           "frame": {
+            "x": 1072.0,
+            "y": 766.0,
+            "w": 39.0,
+            "h": 25.0
+           },
+           "children": [
+            {
+             "role": "AXGroup",
+             "subrole": "AXEmptyGroup",
+             "role_description": "group",
+             "dom_classes": [
+              "eBlXUe-uMhiad-haAclf"
+             ],
+             "frame": {
+              "x": 1075.0,
+              "y": 769.0,
+              "w": 18.0,
+              "h": 19.0
+             },
+             "children": [
+              {
+               "role": "AXGroup",
+               "subrole": "AXEmptyGroup",
+               "role_description": "group",
+               "dom_classes": [
+                "eBlXUe-uMhiad",
+                "eBlXUe-uMhiad-OWXEXe-zfdrlf"
+               ],
+               "frame": {
+                "x": 1075.0,
+                "y": 769.0,
+                "w": 18.0,
+                "h": 19.0
+               },
+               "children": [
+                {
+                 "role": "AXGroup",
+                 "subrole": "AXEmptyGroup",
+                 "role_description": "group",
+                 "dom_classes": [
+                  "eBlXUe-lw9akd"
+                 ],
+                 "frame": {
+                  "x": 1075.0,
+                  "y": 769.0,
+                  "w": 18.0,
+                  "h": 19.0
+                 },
+                 "children": [
+                  {
+                   "role": "AXGroup",
+                   "subrole": "AXEmptyGroup",
+                   "role_description": "group",
+                   "dom_classes": [
+                    "eBlXUe-pafCAf",
+                    "eBlXUe-pafCAf-OWXEXe-IT5dJd"
+                   ],
+                   "frame": {
+                    "x": 1078.0,
+                    "y": 772.0,
+                    "w": 12.0,
+                    "h": 13.0
+                   }
+                  },
+                  {
+                   "role": "AXGroup",
+                   "subrole": "AXEmptyGroup",
+                   "role_description": "group",
+                   "dom_classes": [
+                    "eBlXUe-pafCAf",
+                    "eBlXUe-pafCAf-OWXEXe-Xhs9z"
+                   ],
+                   "frame": {
+                    "x": 1078.0,
+                    "y": 772.0,
+                    "w": 12.0,
+                    "h": 13.0
+                   }
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

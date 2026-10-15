@@ -1,0 +1,178 @@
+{
+ "role": "AXApplication",
+ "children": [
+  {
+   "role": "AXWindow",
+   "title": "Other window",
+   "frame": {
+    "x": 1561.0,
+    "y": 61.0,
+    "w": 270.0,
+    "h": 80.0
+   },
+   "children": []
+  },
+  {
+   "role": "AXWindow",
+   "title": "Other window",
+   "frame": {
+    "x": 0.0,
+    "y": 30.0,
+    "w": 1920.0,
+    "h": 980.0
+   },
+   "children": [
+    {
+     "role": "AXTabGroup",
+     "children": [
+      {
+       "role": "AXRadioButton",
+       "subrole": "AXTabButton",
+       "title": "Other tab"
+      },
+      {
+       "role": "AXRadioButton",
+       "subrole": "AXTabButton",
+       "title": "Other tab"
+      },
+      {
+       "role": "AXRadioButton",
+       "subrole": "AXTabButton",
+       "title": "Other tab"
+      },
+      {
+       "role": "AXRadioButton",
+       "subrole": "AXTabButton",
+       "title": "Other tab"
+      },
+      {
+       "role": "AXRadioButton",
+       "subrole": "AXTabButton",
+       "title": "Other tab"
+      },
+      {
+       "role": "AXRadioButton",
+       "subrole": "AXTabButton",
+       "title": "Other tab"
+      },
+      {
+       "role": "AXRadioButton",
+       "subrole": "AXTabButton",
+       "title": "Other tab"
+      },
+      {
+       "role": "AXRadioButton",
+       "subrole": "AXTabButton",
+       "title": "Other tab"
+      },
+      {
+       "role": "AXRadioButton",
+       "subrole": "AXTabButton",
+       "title": "Other tab"
+      },
+      {
+       "role": "AXRadioButton",
+       "subrole": "AXTabButton",
+       "title": "Other tab"
+      },
+      {
+       "role": "AXRadioButton",
+       "subrole": "AXTabButton",
+       "title": "Other tab"
+      },
+      {
+       "role": "AXRadioButton",
+       "subrole": "AXTabButton",
+       "title": "Other tab"
+      },
+      {
+       "role": "AXRadioButton",
+       "subrole": "AXTabButton",
+       "title": "Other tab"
+      },
+      {
+       "role": "AXRadioButton",
+       "subrole": "AXTabButton",
+       "title": "Other tab"
+      },
+      {
+       "role": "AXRadioButton",
+       "subrole": "AXTabButton",
+       "title": "Other tab"
+      },
+      {
+       "role": "AXRadioButton",
+       "subrole": "AXTabButton",
+       "title": "Other tab"
+      },
+      {
+       "role": "AXRadioButton",
+       "subrole": "AXTabButton",
+       "title": "Other tab"
+      },
+      {
+       "role": "AXRadioButton",
+       "subrole": "AXTabButton",
+       "title": "Other tab"
+      },
+      {
+       "role": "AXRadioButton",
+       "subrole": "AXTabButton",
+       "title": "Other tab"
+      },
+      {
+       "role": "AXRadioButton",
+       "subrole": "AXTabButton",
+       "title": "Other tab"
+      },
+      {
+       "role": "AXRadioButton",
+       "subrole": "AXTabButton",
+       "title": "Other tab"
+      },
+      {
+       "role": "AXRadioButton",
+       "subrole": "AXTabButton",
+       "title": "Other tab"
+      },
+      {
+       "role": "AXRadioButton",
+       "subrole": "AXTabButton",
+       "title": "Other tab"
+      },
+      {
+       "role": "AXRadioButton",
+       "subrole": "AXTabButton",
+       "title": "Other tab"
+      },
+      {
+       "role": "AXRadioButton",
+       "subrole": "AXTabButton",
+       "title": "Other tab"
+      },
+      {
+       "role": "AXRadioButton",
+       "subrole": "AXTabButton",
+       "title": "Other tab"
+      },
+      {
+       "role": "AXRadioButton",
+       "subrole": "AXTabButton",
+       "title": "Other tab"
+      },
+      {
+       "role": "AXRadioButton",
+       "subrole": "AXTabButton",
+       "title": "Other tab"
+      },
+      {
+       "role": "AXRadioButton",
+       "subrole": "AXTabButton",
+       "title": "Meet: abc-defg-hij - Camera and microphone recording"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -29,6 +29,16 @@ A server can offer a "Connect the recorder" link: `recordem://login?api=…&auth
 doesn't inherit, so `src-tauri/Cargo.lock` was seeded from theirs: when bumping `rev`, copy their `Cargo.lock` again
 and rebuild. Never depend on anything under their `enterprise/` (commercial license).
 
+**Speech recognition** is an engine behind one interface (`src-tauri/src/asr.rs`), chosen per use in `config.json`:
+`asr_live` (the draft during the call) and `asr_final` (the pass after it), each `"whisper"` (default), `"parakeet"`
+or `"parakeet:ultra"`. Parakeet runs in a helper process (`parakeet/`, Swift, FluidAudio on the Neural Engine,
+Apache-2.0) bundled next to the app; its models (~480 MB) download into `models/parakeet/` the first time. Compare
+engines on the same audio, the way the recorder runs them:
+`cargo run --release --features bench --bin asr-bench -- call.wav whisper parakeet --lang pt,en` (with
+`RECORDEM_PARAKEET=parakeet/.build/release/recordem-parakeet` outside the bundle). A 16.5 min call (Oct 2026):
+Whisper 74 s, Parakeet v3 5.6 s; 88% of the words agree, with different mistakes (Whisper cleans up and sometimes
+paraphrases, Parakeet is verbatim and slips into English).
+
 **UI** is plain HTML/JS in `ui/` (no bundler, no package.json), outside the bun workspace.
 
 ## Dev build

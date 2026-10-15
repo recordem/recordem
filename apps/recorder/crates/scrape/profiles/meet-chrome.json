@@ -1,0 +1,249 @@
+{
+  "id": "meet-chrome",
+  "revision": 5,
+  "apps": [
+    "com.google.Chrome",
+    "company.thebrowser.Browser",
+    "com.brave.Browser",
+    "com.microsoft.edgemac"
+  ],
+  "window": [
+    "matches",
+    "title",
+    "^Meet( - |: )"
+  ],
+  "prune": [
+    "or",
+    [
+      "eq",
+      "role",
+      "AXTabGroup"
+    ],
+    [
+      "eq",
+      "role",
+      "AXToolbar"
+    ],
+    [
+      "eq",
+      "role",
+      "AXMenuBar"
+    ]
+  ],
+  "stage": [
+    "eq",
+    "subrole",
+    "AXLandmarkMain"
+  ],
+  "tiles": [
+    [
+      "class",
+      "oZRSLe"
+    ],
+    [
+      "and",
+      [
+        "eq",
+        "role",
+        "AXGroup"
+      ],
+      [
+        "min_size",
+        80,
+        45
+      ],
+      [
+        "count",
+        [
+          "and",
+          [
+            "eq",
+            "role",
+            "AXStaticText"
+          ],
+          [
+            "has",
+            "value"
+          ]
+        ],
+        1,
+        1
+      ],
+      [
+        "descendant",
+        [
+          "eq",
+          "subrole",
+          "AXEmptyGroup"
+        ]
+      ]
+    ]
+  ],
+  "name": [
+    {
+      "from": [
+        "class",
+        "XEazBc"
+      ],
+      "attr": "text"
+    },
+    {
+      "from": [
+        "and",
+        [
+          "eq",
+          "role",
+          "AXStaticText"
+        ],
+        [
+          "has",
+          "value"
+        ]
+      ],
+      "attr": "value",
+      "regex": "^(?P<v>[^.!?]{1,60})$"
+    }
+  ],
+  "speaking": [
+    "or",
+    [
+      "class",
+      "kssMZb"
+    ],
+    [
+      "and",
+      [
+        "class",
+        "JHK7jb"
+      ],
+      [
+        "not",
+        [
+          "class",
+          "FTMc0c"
+        ]
+      ]
+    ]
+  ],
+  "roster": {
+    "list": [
+      "and",
+      [
+        "eq",
+        "role",
+        "AXList"
+      ],
+      [
+        "one_of",
+        "description",
+        [
+          "Participantes",
+          "Participants",
+          "Teilnehmer",
+          "Partecipanti",
+          "Deelnemers"
+        ]
+      ]
+    ],
+    "item": [
+      "and",
+      [
+        "eq",
+        "role",
+        "AXGroup"
+      ],
+      [
+        "has",
+        "title"
+      ]
+    ],
+    "name": [
+      {
+        "attr": "title"
+      }
+    ],
+    "is_self": [
+      "matches",
+      "value",
+      "^\\((Você|You|Tú|Vous|Sie|Tu|Jij)\\)$"
+    ],
+    "muted": [
+      "matches",
+      "description",
+      "(?i)(microfone está desativado|ativar o som de outra pessoa|microphone is off|unmute someone else|micrófono está desactivado|activar el sonido de otra persona)"
+    ]
+  },
+  "title": [
+    {
+      "from": [
+        "eq",
+        "role",
+        "AXWebArea"
+      ],
+      "attr": "title",
+      "regex": "^Meet[:\\-–] ?(?P<v>[a-z]{3}-[a-z]{4}-[a-z]{3})"
+    },
+    {
+      "from": [
+        "and",
+        [
+          "eq",
+          "role",
+          "AXWindow"
+        ],
+        [
+          "matches",
+          "title",
+          "^Meet"
+        ]
+      ],
+      "attr": "title",
+      "regex": "^Meet[:\\-–] ?(?P<v>[a-z]{3}-[a-z]{4}-[a-z]{3})"
+    }
+  ],
+  "elsewhere": {
+    "item": [
+      "and",
+      [
+        "eq",
+        "subrole",
+        "AXTabButton"
+      ],
+      [
+        "matches",
+        "title",
+        "^Meet( - |: )"
+      ]
+    ],
+    "title": [
+      {
+        "attr": "title",
+        "regex": "^Meet[:\\-–] ?(?P<v>[a-z]{3}-[a-z]{4}-[a-z]{3})"
+      }
+    ],
+    "prune": [
+      "or",
+      [
+        "eq",
+        "role",
+        "AXWebArea"
+      ],
+      [
+        "eq",
+        "role",
+        "AXToolbar"
+      ],
+      [
+        "eq",
+        "role",
+        "AXMenuBar"
+      ]
+    ]
+  },
+  "obstructed": [
+    "eq",
+    "subrole",
+    "AXApplicationDialog"
+  ],
+  "ignore_name": "(?i)\\((sua |your )?(apresentação|presentation)\\)$|apresentando\\)$|presenting\\)$"
+}

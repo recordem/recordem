@@ -1,0 +1,9 @@
+[package]
+name = "recordem-timeline"
+description = "Names diarized voices after who the call app showed speaking"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true

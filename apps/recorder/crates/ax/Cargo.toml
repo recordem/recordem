@@ -1,0 +1,14 @@
+[package]
+name = "recordem-ax"
+description = "Snapshots of a macOS app's Accessibility tree as plain data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSArray", "NSBundle", "NSURL"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "libc", "NSRunningApplication"] }

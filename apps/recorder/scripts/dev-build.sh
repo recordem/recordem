@@ -38,6 +38,7 @@ if [ -f "$KC" ]; then
   IDENTITY="$(security find-identity -p codesigning "$KC" | sed -n "s/.*) \([0-9A-F]\{40\}\) \"$NAME\".*/\1/p" | head -1)"
 fi
 [ "$IDENTITY" = "-" ] && echo "! no dev certificate (run --setup): ad-hoc signature, permissions reset on every build" >&2
+../parakeet/build.sh   # the Parakeet engine's helper, bundled next to the app's executable
 APPLE_SIGNING_IDENTITY="$IDENTITY" cargo tauri build --bundles app
 
 REC="$HOME/Library/Application Support/Recordem/recordings"

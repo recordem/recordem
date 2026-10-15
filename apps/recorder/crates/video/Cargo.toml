@@ -1,0 +1,18 @@
+[package]
+name = "recordem-video"
+description = "Records the call window and plans each participant's crop from the tile frames"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+recordem-ax.workspace = true
+serde.workspace = true
+anyhow.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+block2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSURL", "NSError", "NSArray"] }
+objc2-av-foundation = { version = "0.3", default-features = false, features = ["std", "AVMediaFormat"] }
+objc2-screen-capture-kit = { version = "0.3", default-features = false, features = ["std", "block2", "libc", "objc2-core-foundation", "objc2-core-graphics", "objc2-av-foundation", "SCStream", "SCShareableContent", "SCRecordingOutput"] }

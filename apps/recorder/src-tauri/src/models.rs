@@ -21,7 +21,6 @@ pub const VAD: Model = Model {
     url: "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin",
     size: 885_098,
 };
-pub const MODEL_NAME: &str = "whisper large-v3-turbo q5_0 + silero vad + pyannote";
 
 pub fn path(m: &Model) -> PathBuf {
     crate::config::models_dir().join(m.file)

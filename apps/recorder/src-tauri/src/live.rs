@@ -1,5 +1,5 @@
 // The live transcript, while a call is being recorded: each channel's audio is cut where a turn ends (Silero VAD) and
-// goes through Whisper right away, so the text reaches the API (`POST /v1/recordings/{id}/live`) seconds after it is spoken.
+// goes through the engine (asr.rs) right away, so the text reaches the API (`POST /v1/recordings/{id}/live`) seconds after it is spoken.
 // It is a draft: the voices on the other side aren't told apart (diarization needs the whole call), and the pass after
 // the call (transcribe::run) replaces it. Best effort: nothing here can stop or spoil the recording.
 use crate::api::{self, LiveBatch, Segment};
@@ -7,7 +7,6 @@ use crate::config::Config;
 use std::sync::mpsc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
-use whisper_rs::WhisperState;
 
 const RATE: usize = crate::capture::RATE as usize;
 // A turn's end as the VAD reports it already carries ~300 ms of quiet (its own pad and speech()'s), so it is over
@@ -32,13 +31,13 @@ struct Channel {
     speaker: Option<String>,
     buf: Vec<f32>,
     at: usize,
-    state: WhisperState,
+    engine: Box<dyn crate::asr::Engine>,
     lang: Option<String>,
 }
 
 impl Channel {
     /// Transcribes the turns that are over (or everything, after MAX_WAIT) and drops their audio.
-    fn step(&mut self, vad: &mut whisper_rs::WhisperVadContext, langs: &[String], vocabulary: &str, threads: usize) -> anyhow::Result<Vec<Segment>> {
+    fn step(&mut self, vad: &mut whisper_rs::WhisperVadContext, langs: &[String], vocabulary: &str) -> anyhow::Result<Vec<Segment>> {
         let turns = crate::transcribe::speech_in(vad, &self.buf)?;
         if turns.is_empty() {
             let cut = self.buf.len().saturating_sub(IDLE_KEEP);
@@ -54,8 +53,8 @@ impl Channel {
                 continue;
             }
             let audio = &self.buf[a..b];
-            let lang = crate::transcribe::pick(&mut self.state, audio, langs, self.lang.as_deref(), threads)?;
-            out.extend(crate::transcribe::turn(&mut self.state, audio, self.at + a, &lang, vocabulary, self.name, self.speaker.as_deref(), threads)?);
+            let lang = self.engine.language(audio, langs, self.lang.as_deref())?;
+            out.extend(crate::transcribe::turn(self.engine.as_mut(), audio, self.at + a, &lang, vocabulary, self.name, self.speaker.as_deref())?);
             self.lang = Some(lang);
         }
         self.drop_to(cut);
@@ -70,15 +69,14 @@ impl Channel {
 
 /// Runs on its own thread until the capture drops its end of `frames`; sends each turn's segments to `out`.
 /// Whatever is still in the buffers then is left to the pass after the call.
-pub fn transcribe(frames: mpsc::Receiver<Frame>, out: tokio::sync::mpsc::UnboundedSender<Vec<Segment>>, languages: &str, vocabulary: &str) -> anyhow::Result<()> {
+/// `engine`: the setting (asr::open) for the draft.
+pub fn transcribe(frames: mpsc::Receiver<Frame>, out: tokio::sync::mpsc::UnboundedSender<Vec<Segment>>, languages: &str, vocabulary: &str, engine: &str) -> anyhow::Result<()> {
     let langs = crate::config::languages(languages);
     // Half the cores: the call itself (video, the browser) runs on this Mac too.
     let threads = std::thread::available_parallelism().map(|n| n.get() / 2).unwrap_or(4).clamp(2, 4);
-    let ctx = crate::transcribe::ctx()?;
-    let state = || ctx.create_state().map_err(|e| anyhow::anyhow!("whisper: {e}"));
     let mut vad = crate::transcribe::vad()?;
-    let mut mic = Channel { name: "mic", speaker: Some("mic".into()), buf: vec![], at: 0, state: state()?, lang: None };
-    let mut system = Channel { name: "system", speaker: None, buf: vec![], at: 0, state: state()?, lang: None };
+    let mut mic = Channel { name: "mic", speaker: Some("mic".into()), buf: vec![], at: 0, engine: crate::asr::open(engine, threads)?, lang: None };
+    let mut system = Channel { name: "system", speaker: None, buf: vec![], at: 0, engine: crate::asr::open(engine, threads)?, lang: None };
     let mut fresh = 0usize;
     while let Ok(f) = frames.recv() {
         fresh += f.mic.len();
@@ -94,8 +92,8 @@ pub fn transcribe(frames: mpsc::Receiver<Frame>, out: tokio::sync::mpsc::Unbound
             continue;
         }
         fresh = 0;
-        let mut segs = mic.step(&mut vad, &langs, vocabulary, threads)?;
-        segs.extend(system.step(&mut vad, &langs, vocabulary, threads)?);
+        let mut segs = mic.step(&mut vad, &langs, vocabulary)?;
+        segs.extend(system.step(&mut vad, &langs, vocabulary)?);
         if !segs.is_empty() {
             segs.sort_by_key(|s| s.start_ms);
             if out.send(segs).is_err() {

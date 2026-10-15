@@ -1,0 +1,19 @@
+[package]
+name = "recordem-probe"
+description = "PoC CLI: dump, scrape, watch and record a call app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "probe"
+path = "src/main.rs"
+
+[dependencies]
+recordem-ax.workspace = true
+recordem-scrape.workspace = true
+recordem-timeline.workspace = true
+recordem-video.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true

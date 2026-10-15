@@ -1,25 +1,14 @@
-// Local transcription: whisper.cpp (Metal) transcribes each turn of each channel, and the two channels are merged by
-// time. mic = whoever runs the recorder: Silero VAD finds its turns. system = everyone else on the call: Anarlog's
+// Local transcription: an engine (asr.rs: Whisper or Parakeet, a setting) transcribes each turn of each channel, and
+// the two channels are merged by time. mic = whoever runs the recorder: Silero VAD finds its turns. system = everyone else on the call: Anarlog's
 // pyannote diarization (CoreML) finds who spoke when, so each turn is one voice and a line never mixes two people.
 use crate::api::Segment;
+use crate::asr::Engine;
 use crate::models;
 use anlg_pyannote::{DiarizationConfig, DiarizeRequest, Diarizer, SpeakerSegment};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, OnceLock};
-use whisper_rs::{get_lang_id, FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperVadContext, WhisperVadContextParams, WhisperVadParams, WhisperState};
-
-static CTX: OnceLock<WhisperContext> = OnceLock::new();
-
-pub(crate) fn ctx() -> anyhow::Result<&'static WhisperContext> {
-    if let Some(c) = CTX.get() {
-        return Ok(c);
-    }
-    let path = models::path(&models::WHISPER);
-    let c = WhisperContext::new_with_params(path.to_str().unwrap(), WhisperContextParameters::default())
-        .map_err(|e| anyhow::anyhow!("couldn't load the model: {e}"))?;
-    Ok(CTX.get_or_init(|| c))
-}
+use std::sync::Arc;
+use whisper_rs::{WhisperVadContext, WhisperVadContextParams, WhisperVadParams};
 
 /// Speech in a channel as sample ranges: Silero VAD, then turns closer than MERGE_GAP joined up to MAX_CHUNK.
 /// (whisper.cpp's own VAD option returns timestamps with the silence removed, which loses where a turn was.)
@@ -105,38 +94,11 @@ fn voices(audio: &[f32], progress: &Arc<AtomicU32>, base: f32, weight: f32) -> O
     Some(padded.into_iter().flat_map(|(a, b, k)| (a..b).step_by(MAX_CHUNK).map(move |x| (x, (x + MAX_CHUNK).min(b), k))).collect())
 }
 
-/// Which of `langs` a turn is in. One language: that one, no detection. Several: Whisper's language detection over the
-/// turn, restricted to `langs`; a short turn ("ok", "yeah") or an unsure one keeps the channel's previous language.
-pub(crate) fn pick(state: &mut WhisperState, audio: &[f32], langs: &[String], prev: Option<&str>, threads: usize) -> anyhow::Result<String> {
-    const RATE: usize = crate::capture::RATE as usize;
-    const MIN_DETECT: usize = 2 * RATE; // shorter than this, detection is a coin toss
-    const SURE: f32 = 0.7;              // share of the allowed languages' probability the winner needs
-    if langs.len() == 1 {
-        return Ok(langs[0].clone());
-    }
-    if let Some(p) = prev.filter(|_| audio.len() < MIN_DETECT) {
-        return Ok(p.into());
-    }
-    state.pcm_to_mel(audio, threads).map_err(|e| anyhow::anyhow!("whisper: {e}"))?;
-    let (_, probs) = state.lang_detect(0, threads).map_err(|e| anyhow::anyhow!("whisper: {e}"))?;
-    let scored: Vec<(&String, f32)> = langs.iter()
-        .map(|l| (l, get_lang_id(l).and_then(|i| probs.get(i as usize).copied()).unwrap_or(0.0)))
-        .collect();
-    let sum: f32 = scored.iter().map(|(_, p)| p).sum::<f32>().max(f32::EPSILON);
-    let (best, p) = scored.into_iter().fold((&langs[0], -1.0), |a, b| if b.1 > a.1 { b } else { a });
-    Ok(match prev {
-        Some(prev) if p / sum < SURE => prev.into(),
-        _ => best.clone(),
-    })
-}
-
 /// `turns`: (start, end, speaker label) in samples. `progress` is in thousandths of the whole job; this channel covers
 /// [base, base + weight).
-fn channel(audio: &[f32], turns: Vec<(usize, usize, Option<String>)>, langs: &[String], vocabulary: &str, name: &str, progress: &Arc<AtomicU32>, base: f32, weight: f32) -> anyhow::Result<Vec<Segment>> {
+fn channel(engine: &mut dyn Engine, audio: &[f32], turns: Vec<(usize, usize, Option<String>)>, langs: &[String], vocabulary: &str, name: &str, progress: &Arc<AtomicU32>, base: f32, weight: f32) -> anyhow::Result<Vec<Segment>> {
     const RATE: usize = crate::capture::RATE as usize;
     let total: usize = turns.iter().map(|(a, b, _)| b - a).sum::<usize>().max(1);
-    let mut state = ctx()?.create_state().map_err(|e| anyhow::anyhow!("whisper: {e}"))?;
-    let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(8);
     let mut out = vec![];
     // The language each voice spoke last: a short turn keeps it (people don't switch on "ok").
     let mut prev: HashMap<Option<String>, String> = HashMap::new();
@@ -145,8 +107,8 @@ fn channel(audio: &[f32], turns: Vec<(usize, usize, Option<String>)>, langs: &[S
         if b - a < RATE / 2 {
             continue;
         }
-        let lang = pick(&mut state, &audio[a..b], langs, prev.get(&speaker).map(String::as_str), threads)?;
-        out.extend(turn(&mut state, &audio[a..b], a, &lang, vocabulary, name, speaker.as_deref(), threads)?);
+        let lang = engine.language(&audio[a..b], langs, prev.get(&speaker).map(String::as_str))?;
+        out.extend(turn(engine, &audio[a..b], a, &lang, vocabulary, name, speaker.as_deref())?);
         prev.insert(speaker, lang);
         done += b - a;
         progress.store(((base + weight * done as f32 / total as f32) * 1000.0) as u32, Ordering::Relaxed);
@@ -154,78 +116,43 @@ fn channel(audio: &[f32], turns: Vec<(usize, usize, Option<String>)>, langs: &[S
     Ok(out)
 }
 
-/// One turn through Whisper, in `lang`. `at` is where the turn starts in the channel, in samples: the segments' times
-/// are from the start of the recording.
-pub(crate) fn turn(state: &mut WhisperState, audio: &[f32], at: usize, lang: &str, vocabulary: &str, name: &str, speaker: Option<&str>, threads: usize) -> anyhow::Result<Vec<Segment>> {
+/// One turn through the engine, in `lang`. `at` is where the turn starts in the channel, in samples: the segments'
+/// times are from the start of the recording.
+pub(crate) fn turn(engine: &mut dyn Engine, audio: &[f32], at: usize, lang: &str, vocabulary: &str, name: &str, speaker: Option<&str>) -> anyhow::Result<Vec<Segment>> {
     const RATE: usize = crate::capture::RATE as usize;
-    let prompt = prompt(vocabulary, lang);
-    let mut p = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-    p.set_language(Some(lang));
-    p.set_n_threads(threads as i32);
-    p.set_print_progress(false);
-    p.set_print_realtime(false);
-    p.set_print_special(false);
-    p.set_print_timestamps(false);
-    p.set_suppress_blank(true);
-    p.set_suppress_nst(true);
-    p.set_no_context(true);
-    p.set_no_speech_thold(0.6);
-    if !prompt.is_empty() {
-        p.set_initial_prompt(&prompt);
-    }
-    state.full(p, audio).map_err(|e| anyhow::anyhow!("whisper: {e}"))?;
     let offset_ms = (at * 1000 / RATE) as u64;
-    let mut out = vec![];
-    for seg in state.as_iter() {
-        let text = seg.to_str_lossy().map(|s| s.trim().to_string()).unwrap_or_default();
-        if text.is_empty() || seg.no_speech_probability() > 0.8 {
-            continue;
-        }
-        // whisper timestamps are centiseconds from the start of this chunk
-        out.push(Segment {
-            start_ms: offset_ms + (seg.start_timestamp().max(0) as u64) * 10,
-            end_ms: offset_ms + (seg.end_timestamp().max(0) as u64) * 10,
+    Ok(engine
+        .transcribe(audio, lang, vocabulary)?
+        .into_iter()
+        .map(|p| Segment {
+            start_ms: offset_ms + p.start_ms,
+            end_ms: offset_ms + p.end_ms,
             channel: name.into(),
-            text,
+            text: p.text,
             language: Some(lang.into()),
             speaker: speaker.map(String::from),
-        });
-    }
-    Ok(out)
-}
-
-/// Whisper's initial prompt: the person's own words (settings), nothing else. Whisper reads only the last ~224 tokens
-/// of it; keep it short. Nothing about a meeting or a person goes in: Whisper sometimes echoes prompt words into the
-/// text over silence.
-fn prompt(vocabulary: &str, _lang: &str) -> String {
-    let mut out = String::new();
-    for t in vocabulary.lines().map(str::trim).filter(|l| !l.is_empty()) {
-        if out.len() + t.len() > 600 {
-            break;
-        }
-        if !out.is_empty() {
-            out.push_str(", ");
-        }
-        out.push_str(t);
-    }
-    if out.is_empty() { out } else { format!("{out}.") }
+        })
+        .collect())
 }
 
 /// Both channels, merged by start time. `progress` goes 0..1000 over the whole job.
 /// `languages`: the ones the calls may be in, comma-separated ("pt,en"); each turn is transcribed in one of them.
-pub fn run(mic: &[f32], system: &[f32], languages: &str, vocabulary: &str, progress: &Arc<AtomicU32>) -> anyhow::Result<Vec<Segment>> {
+/// `engine`: the setting (asr::open), e.g. "whisper".
+pub fn run(mic: &[f32], system: &[f32], languages: &str, vocabulary: &str, engine: &str, progress: &Arc<AtomicU32>) -> anyhow::Result<Vec<Segment>> {
     let langs = crate::config::languages(languages);
+    let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(8);
+    let mut engine = crate::asr::open(engine, threads)?;
     let total = (mic.len() + system.len()).max(1) as f32;
     let wm = mic.len() as f32 / total;
     let mic_turns = speech(mic)?.into_iter().map(|(a, b)| (a, b, Some("mic".to_string()))).collect();
-    let mut segs = channel(mic, mic_turns, &langs, vocabulary, "mic", progress, 0.0, wm)?;
+    let mut segs = channel(engine.as_mut(), mic, mic_turns, &langs, vocabulary, "mic", progress, 0.0, wm)?;
     // The other side: about a third of its time goes to telling the voices apart, the rest to Whisper.
     let ws = 1.0 - wm;
     let system_turns = match voices(system, progress, wm, ws / 3.0) {
         Some(v) => v.into_iter().map(|(a, b, k)| (a, b, Some(format!("system:{}", k + 1)))).collect(),
         None => speech(system)?.into_iter().map(|(a, b)| (a, b, None)).collect(),
     };
-    segs.extend(channel(system, system_turns, &langs, vocabulary, "system", progress, wm + ws / 3.0, ws * 2.0 / 3.0)?);
+    segs.extend(channel(engine.as_mut(), system, system_turns, &langs, vocabulary, "system", progress, wm + ws / 3.0, ws * 2.0 / 3.0)?);
     segs.sort_by_key(|s| s.start_ms);
     progress.store(1000, Ordering::Relaxed);
     Ok(segs)

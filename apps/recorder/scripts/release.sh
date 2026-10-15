@@ -27,6 +27,7 @@ OUT="target/release/dist"
 DMG="$OUT/Recordem-$VERSION.dmg"
 
 echo "→ Recordem $VERSION, signed by: $IDENTITY"
+../parakeet/build.sh   # the Parakeet engine's helper, bundled next to the app's executable
 APPLE_SIGNING_IDENTITY="$IDENTITY" cargo tauri build --bundles app
 
 notarize() {   # $1: a .zip or .dmg
