@@ -152,7 +152,13 @@ pub fn request(id: &str) {
     }
     match id {
         "microphone" => request_microphone(),
-        "system_audio" => request_system_audio(),
+        // The tap shows macOS's prompt only when it was never decided; otherwise nothing happens, so the pane opens.
+        "system_audio" => {
+            request_system_audio();
+            if system_audio() != Status::Granted {
+                open_settings(id);
+            }
+        }
         "accessibility" => {
             ASKED_AX.store(true, std::sync::atomic::Ordering::Relaxed);
             macos_accessibility_client::accessibility::application_is_trusted_with_prompt();
@@ -170,14 +176,25 @@ pub fn request(id: &str) {
     }
 }
 
+/// The pane of System Settings for one permission. "Screen & System Audio Recording" is one pane, under the screen
+/// capture anchor. Newer and older Settings URLs are tried in turn; `open` fails on one it can't resolve.
 pub fn open_settings(id: &str) {
     let anchor = match id {
         "microphone" => "Privacy_Microphone",
-        "system_audio" => "Privacy_AudioCapture",
+        "system_audio" => "Privacy_ScreenCapture",
         "accessibility" => "Privacy_Accessibility",
         "automation" => "Privacy_Automation",
         _ => "",
     };
-    let url = format!("x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?{anchor}");
-    let _ = std::process::Command::new("/usr/bin/open").arg(url).status();
+    let urls = [
+        format!("x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?{anchor}"),
+        format!("x-apple.systempreferences:com.apple.preference.security?{anchor}"),
+        "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension".to_string(),
+    ];
+    for url in urls {
+        match std::process::Command::new("/usr/bin/open").arg(&url).status() {
+            Ok(st) if st.success() => return,
+            r => eprintln!("open {url}: {r:?}"),
+        }
+    }
 }
