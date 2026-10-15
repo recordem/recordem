@@ -20,7 +20,22 @@ const run = async (cmd, args) => {
   tick(true);
 };
 
-document.getElementById("gear").onclick = () => { showSettings = !(showSettings || showPerms); showPerms = false; tick(true); };
+/** The window's header: the app and its settings button, or, on a sub-page, the way back and the page's name. */
+function header(page) {
+  const $top = document.getElementById("top");
+  const key = page ? `${page.title}|${page.back}` : "main";
+  if ($top.dataset.key === key) return;
+  $top.dataset.key = key;
+  $top.className = page ? "sub" : "";
+  $top.innerHTML = page
+    ? `<button class="back" id="back">‹ ${esc(page.back)}</button><strong>${esc(page.title)}</strong><span></span>`
+    : `<span class="logo" aria-hidden="true"></span><strong>Recordem</strong>
+       <button id="gear" class="icon" title="Settings" aria-label="Settings">⚙</button>`;
+  if (page) document.getElementById("back").onclick = page.onBack;
+  else document.getElementById("gear").onclick = () => { showSettings = true; showPerms = false; tick(true); };
+}
+const toMain = () => { showSettings = false; showPerms = false; permsKey = ""; tick(true); };
+const toSettings = () => { showPerms = false; showSettings = true; permsKey = ""; tick(true); };
 
 const toggle = (id, on) => `<label class="switch"><input type="checkbox" id="${id}" ${on ? "checked" : ""}><i></i></label>`;
 const LANGS = [["en", "English"], ["pt", "Portuguese"], ["es", "Spanish"], ["fr", "French"], ["de", "German"]];
@@ -64,7 +79,6 @@ async function settings() {
   const initial = (c.account || "?").trim()[0]?.toUpperCase() ?? "?";
   let langs = [...c.languages];
   $view.innerHTML = `
-    <div class="nav"><button class="back" id="close">‹ Back</button><h2>Settings</h2><span></span></div>
 
     <div class="group-title">Account</div>
     <div class="group">
@@ -123,7 +137,6 @@ async function settings() {
     b.setAttribute("aria-pressed", String(!on));
     save();
   };
-  document.getElementById("close").onclick = () => { showSettings = false; tick(true); };
   document.getElementById("logout").onclick = async () => {
     if (confirm("Sign out on this Mac?")) { await invoke("logout"); showSettings = false; tick(true); }
   };
@@ -158,14 +171,12 @@ async function permissionsPage() {
   if (key === permsKey) return;
   permsKey = key;
   $view.innerHTML = `
-    <div class="nav"><button class="back" id="perms-back">‹ Settings</button><h2>Permissions</h2><span></span></div>
     <div class="group-title">Needed to record</div>
     <div class="group">${permRows(items.filter((i) => i.required))}</div>
     <div class="group-title">Recommended</div>
     <div class="group">${permRows(items.filter((i) => !i.required))}</div>
     <p class="group-note">These link each recording to the right meeting. Without them, recordings are matched by time.</p>`;
   bindPerms();
-  document.getElementById("perms-back").onclick = () => { showPerms = false; showSettings = true; permsKey = ""; tick(true); };
 }
 
 function bindPerms() {
@@ -252,8 +263,9 @@ function render(s) {
 }
 
 async function tick(force) {
-  if (showPerms) { await permissionsPage(); return; }
-  if (showSettings) { if (force) settings(); return; }
+  if (showPerms) { header({ title: "Permissions", back: "Settings", onBack: toSettings }); await permissionsPage(); return; }
+  if (showSettings) { header({ title: "Settings", back: "Back", onBack: toMain }); if (force) settings(); return; }
+  header(null);
   const s = await invoke("status");
   if (s.phase === "setup") { if (last !== "setup" || force) { last = "setup"; settings(); } return; }
   $foot.textContent = s.pending ? `${s.pending} recording${s.pending > 1 ? "s" : ""} waiting to be sent` : $foot.textContent;
