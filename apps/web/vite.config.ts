@@ -16,6 +16,8 @@ export default defineConfig(({ mode }) => {
       __AUTH_URL__: JSON.stringify(AUTH_URL),          // where the browser is sent to sign in
       __API_AUDIENCE__: JSON.stringify(API_URL),       // the resource the tokens are for
       __API_BASE__: JSON.stringify(env.VITE_API_BASE ?? ""),   // "" = same origin, through the proxy
+      // The token endpoint: proxied on the portal's origin in dev; the identity provider's own address in production.
+      __TOKEN_URL__: JSON.stringify(env.VITE_TOKEN_URL ?? "/idp/api/auth/oauth2/token"),
     },
     server: {
       host: "0.0.0.0",

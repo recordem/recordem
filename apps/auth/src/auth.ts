@@ -21,6 +21,13 @@ const ISSUER = (() => {
 
 export const pool = new Pool({ connectionString: env("AUTH_DATABASE_URL") });
 
+const ALLOWLIST = (process.env.SIGNUP_ALLOWLIST ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+const signupAllowed = (email: string) => {
+  if (!ALLOWLIST.length) return true;
+  const e = email.toLowerCase();
+  return ALLOWLIST.some((a) => (a.startsWith("@") ? e.endsWith(a) : e === a));
+};
+
 /** The first workspace a user belongs to: the default when a session starts. */
 async function firstWorkspace(userId: string): Promise<string | null> {
   const { rows } = await pool.query(`SELECT "organizationId" FROM member WHERE "userId" = $1 ORDER BY "createdAt" LIMIT 1`, [userId]);
@@ -40,6 +47,15 @@ export const auth = betterAuth({
   // The portal calls the token endpoint from its own origin.
   trustedOrigins: [AUTH_URL, ...(process.env.WEB_ORIGINS ?? "http://localhost:39412").split(",")],
   databaseHooks: {
+    user: {
+      create: {
+        // A public server limits who may sign up (SIGNUP_ALLOWLIST: emails and/or @domains); unset, anyone may.
+        before: async (user) => {
+          if (!signupAllowed(user.email)) throw new APIError("FORBIDDEN", { message: "Sign-ups are closed on this server." });
+          return { data: user };
+        },
+      },
+    },
     session: {
       create: {
         // A session starts in the user's first workspace; everyone gets a personal one on their first session.

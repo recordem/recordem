@@ -2,7 +2,7 @@
 // Tokens live in localStorage; the access token is refreshed (rotating refresh token) shortly before it expires.
 const CLIENT_ID = "recordem-web";
 const SCOPE = "openid profile email offline_access meetings:read meetings:write transcripts:read audio:read calendars:read";
-const TOKEN_URL = "/idp/api/auth/oauth2/token";       // proxied on this origin
+const TOKEN_URL = __TOKEN_URL__;
 const KEY = "recordem.tokens";
 
 type Tokens = { access: string; refresh: string | null; expiresAt: number };
