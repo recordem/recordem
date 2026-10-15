@@ -1,0 +1,97 @@
+name: Recorder release
+# The macOS recorder (apps/recorder): a push to main that bumps "version" in src-tauri/tauri.conf.json builds it,
+# signs it (Developer ID), notarizes it and publishes the .dmg as the GitHub release v<version>.
+# A version already released is skipped, so other edits to the file don't rebuild.
+# Secrets: DEVELOPER_ID_P12 (base64) + DEVELOPER_ID_P12_PASSWORD, APPLE_ID + APPLE_APP_PASSWORD + APPLE_TEAM_ID
+# (notarization).
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['apps/recorder/src-tauri/tauri.conf.json']
+
+concurrency:
+  group: recorder-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      publish: ${{ steps.v.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version=$(jq -r .version apps/recorder/src-tauri/tauri.conf.json)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if gh release view "v$version" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"; echo "v$version is already released"
+          else echo "publish=true" >> "$GITHUB_OUTPUT"; echo "releasing v$version"; fi
+
+  release:
+    needs: check
+    if: needs.check.outputs.publish == 'true'
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/recorder/src-tauri
+      - name: Tauri CLI
+        run: command -v cargo-tauri || cargo install tauri-cli --version "^2" --locked
+
+      # The Developer ID certificate goes into a throwaway keychain, unlocked for codesign, deleted at the end.
+      - name: Signing keychain
+        env:
+          P12: ${{ secrets.DEVELOPER_ID_P12 }}
+          P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KC="$RUNNER_TEMP/signing.keychain-db"; KC_PASS=$(openssl rand -hex 16)
+          echo "$P12" | base64 --decode > "$RUNNER_TEMP/devid.p12"
+          security create-keychain -p "$KC_PASS" "$KC"
+          security set-keychain-settings -lut 3600 "$KC"
+          security unlock-keychain -p "$KC_PASS" "$KC"
+          security import "$RUNNER_TEMP/devid.p12" -k "$KC" -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KC_PASS" "$KC" >/dev/null
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/devid.p12"
+          security find-identity -v -p codesigning "$KC" | grep "Developer ID Application"
+
+      - name: Build, sign, notarize
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: apps/recorder/scripts/release.sh
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          gh release create "v$VERSION" "apps/recorder/src-tauri/target/release/dist/Recordem-$VERSION.dmg" \
+            --title "Recordem $VERSION" --generate-notes --target "$GITHUB_SHA"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: recorder-${{ needs.check.outputs.version }}
+          path: |
+            apps/recorder/src-tauri/target/release/dist/*.dmg
+            apps/recorder/src-tauri/target/release/dist/notary.log
+          if-no-files-found: ignore
+
+      - name: Remove the signing keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
