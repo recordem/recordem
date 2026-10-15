@@ -3,14 +3,14 @@
 // voices diarization found ("system:1", …) are named after whoever the app showed speaking while each one spoke
 // (crates/timeline). Best effort, like mute.rs: without the Accessibility permission, or for an app no profile reads,
 // nothing is written and the transcript keeps "system:N".
-use crate::api::Segment;
+use crate::api::{Participant, Participants, Segment, SpeakerName};
 use recordem_ax::{AxNode, Limits, Scope};
 use recordem_scrape::{Monitor, Profile, Profiles, Scrape};
 use recordem_timeline::{Assignment, Options, Sample, Turn};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
@@ -29,9 +29,31 @@ pub struct Line {
     pub speaking: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub people: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub muted: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub self_name: Option<String>,
 }
+
+impl Line {
+    /// As the live transcript sends it.
+    pub fn participants(&self) -> Participants {
+        let people = self
+            .people
+            .iter()
+            .map(|n| Participant {
+                name: n.clone(),
+                speaking: self.speaking.contains(n),
+                muted: self.muted.contains(n).then_some(true),
+                is_self: self.self_name.as_ref() == Some(n),
+            })
+            .collect();
+        Participants { t_ms: self.t_ms, visible: self.visible, people }
+    }
+}
+
+/// The last line read, for the live transcript to send along.
+pub type Latest = Arc<Mutex<Option<Line>>>;
 
 fn snapshot(pid: i32, profiles: &[&Profile]) -> Option<AxNode> {
     let window = |w: &AxNode| profiles.iter().any(|p| p.wants_window(w));
@@ -46,12 +68,14 @@ fn line(t_ms: u64, s: &Scrape) -> Line {
         visible: s.visible,
         speaking: s.participants.iter().filter(|p| p.speaking).map(|p| p.name.clone()).collect(),
         people: s.participants.iter().map(|p| p.name.clone()).collect(),
+        muted: s.participants.iter().filter(|p| p.muted == Some(true)).map(|p| p.name.clone()).collect(),
         self_name: s.self_name.clone(),
     }
 }
 
-/// Watches `bundle` (the call's app) on a thread of its own until `stop`; `started` is the recording's sample 0.
-pub fn watch(bundle: String, dir: PathBuf, started: Instant, stop: CancellationToken) {
+/// Watches `bundle` (the call's app) on a thread of its own until `stop`; `started` is the recording's sample 0. Each
+/// line read also goes to `latest`.
+pub fn watch(bundle: String, dir: PathBuf, started: Instant, stop: CancellationToken, latest: Latest) {
     if !recordem_ax::is_trusted() {
         return;
     }
@@ -84,6 +108,7 @@ pub fn watch(bundle: String, dir: PathBuf, started: Instant, stop: CancellationT
                     eprintln!("participants: {}", serde_json::to_string(&event).unwrap_or_default());
                 }
                 let l = line(t_ms, &s);
+                *latest.lock().unwrap() = Some(l.clone());
                 let same = last.as_ref().is_some_and(|p| Line { t_ms, ..p.clone() } == l);
                 if !same || written.elapsed() >= HEARTBEAT {
                     if writeln!(file, "{}", serde_json::to_string(&l).unwrap_or_default()).is_err() {
@@ -127,9 +152,12 @@ pub fn name_voices(lines: &[Line], segments: &[Segment]) -> Vec<Assignment> {
     recordem_timeline::assign(&turns, &recordem_timeline::intervals(&samples(lines), &opts), &opts)
 }
 
-/// The names, by label, for the transcript.
-pub fn names(assignments: &[Assignment]) -> HashMap<String, String> {
-    assignments.iter().map(|a| (a.label.clone(), a.name.clone())).collect()
+/// The names for the transcript; how clear the overlap was is the confidence.
+pub fn names(assignments: &[Assignment]) -> Vec<SpeakerName> {
+    assignments
+        .iter()
+        .map(|a| SpeakerName { label: a.label.clone(), name: a.name.clone(), source: "platform".into(), confidence: Some((a.share * 100.0).round() / 100.0) })
+        .collect()
 }
 
 #[cfg(test)]
@@ -146,19 +174,19 @@ mod tests {
         for t in (0..10_000).step_by(500) {
             // The person on this Mac talks over Ana now and then: never a system voice.
             let speaking = if t % 2000 == 0 { vec!["Ana Souza".into(), "Bruno Lima".into()] } else { vec!["Ana Souza".into()] };
-            lines.push(Line { t_ms: t, visible: true, speaking, people: vec![], self_name: Some("Bruno Lima".into()) });
+            lines.push(Line { t_ms: t, visible: true, speaking, people: vec![], muted: vec![], self_name: Some("Bruno Lima".into()) });
         }
         for t in (10_000..20_000).step_by(500) {
-            lines.push(Line { t_ms: t, visible: true, speaking: vec!["Carla Dias".into()], people: vec![], self_name: None });
+            lines.push(Line { t_ms: t, visible: true, speaking: vec!["Carla Dias".into()], people: vec![], muted: vec![], self_name: None });
         }
-        let names = names(&name_voices(&lines, &[seg("system:1", 300, 9_800), seg("system:2", 10_300, 19_800)]));
+        let names: std::collections::HashMap<_, _> = names(&name_voices(&lines, &[seg("system:1", 300, 9_800), seg("system:2", 10_300, 19_800)])).into_iter().map(|n| (n.label, n.name)).collect();
         assert_eq!(names.get("system:1").map(String::as_str), Some("Ana Souza"));
         assert_eq!(names.get("system:2").map(String::as_str), Some("Carla Dias"));
     }
 
     #[test]
     fn unreadable_times_are_no_evidence() {
-        let lines: Vec<Line> = (0..20).map(|i| Line { t_ms: i * 500, visible: false, speaking: vec![], people: vec![], self_name: None }).collect();
+        let lines: Vec<Line> = (0..20).map(|i| Line { t_ms: i * 500, visible: false, speaking: vec![], people: vec![], muted: vec![], self_name: None }).collect();
         assert!(name_voices(&lines, &[seg("system:1", 0, 9_000)]).is_empty());
     }
 }

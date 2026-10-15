@@ -94,6 +94,9 @@
             },
             "maxItems": 2000
           },
+          "participants": {
+            "$ref": "#/components/schemas/Participants"
+          },
           "ended": {
             "type": "boolean",
             "description": "The last batch: the recording ended"
@@ -150,6 +153,59 @@
           "text"
         ]
       },
+      "Participants": {
+        "type": "object",
+        "properties": {
+          "t_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "When, from the start of the recording"
+          },
+          "visible": {
+            "type": "boolean",
+            "description": "The call app could be read; false: people are the last ones seen, nobody is known to speak"
+          },
+          "people": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Participant"
+            },
+            "maxItems": 500
+          }
+        },
+        "required": [
+          "t_ms",
+          "visible",
+          "people"
+        ],
+        "description": "Who is in the call now; sent when it changes"
+      },
+      "Participant": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "speaking": {
+            "type": "boolean"
+          },
+          "muted": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "self": {
+            "type": "boolean",
+            "description": "Whoever runs the recorder"
+          }
+        },
+        "required": [
+          "name",
+          "speaking"
+        ]
+      },
       "Recording": {
         "type": "object",
         "properties": {
@@ -188,6 +244,16 @@
             "items": {
               "$ref": "#/components/schemas/Track"
             }
+          },
+          "participants": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Participants"
+              },
+              {
+                "description": "Who the call app showed in the call, last time the recorder read it; absent when it couldn't"
+              }
+            ]
           }
         },
         "required": [
@@ -418,6 +484,13 @@
             "items": {
               "$ref": "#/components/schemas/Segment"
             }
+          },
+          "speakers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SpeakerName"
+            },
+            "description": "Names for the voices; a label not listed has none"
           }
         },
         "required": [
@@ -425,7 +498,47 @@
           "status",
           "language",
           "model",
-          "segments"
+          "segments",
+          "speakers"
+        ]
+      },
+      "SpeakerName": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 40,
+            "description": "A voice of the transcript: \"system:1\", \"system:2\", …",
+            "example": "system:1"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "platform",
+              "llm",
+              "user"
+            ],
+            "description": "platform: the call app showed them speaking; llm: inferred from what was said; user: set by hand"
+          },
+          "confidence": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1,
+            "description": "How sure the source is, 0–1; none for user"
+          }
+        },
+        "required": [
+          "label",
+          "name",
+          "source"
         ]
       },
       "Match": {
@@ -511,6 +624,28 @@
           "meeting_id"
         ]
       },
+      "NameSpeaker": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 40,
+            "example": "system:1"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200,
+            "description": "null or empty: the voice goes back to unnamed"
+          }
+        },
+        "required": [
+          "label",
+          "name"
+        ]
+      },
       "FinalTranscript": {
         "type": "object",
         "properties": {
@@ -538,6 +673,14 @@
               "$ref": "#/components/schemas/Segment"
             },
             "maxItems": 20000
+          },
+          "speakers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SpeakerName"
+            },
+            "maxItems": 200,
+            "description": "Names for the voices; names set by hand (source user) are kept"
           }
         },
         "required": [
@@ -562,6 +705,8 @@
               "meeting.deleted",
               "transcript.live",
               "transcript.final",
+              "transcript.speakers",
+              "participants.updated",
               "track.ready"
             ]
           },
@@ -584,7 +729,7 @@
           "data": {
             "type": "object",
             "additionalProperties": {},
-            "description": "transcript.live: {from, segments}; track.ready: Track; others: {}"
+            "description": "transcript.live: {from, segments}; transcript.speakers: {speakers}; participants.updated: Participants; track.ready: Track; others: {}"
           }
         },
         "required": [
@@ -1856,6 +2001,89 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Recording"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token lacks a required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found in this workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/recordings/{id}/transcript/speakers": {
+      "patch": {
+        "operationId": "nameSpeaker",
+        "tags": [
+          "recordings"
+        ],
+        "summary": "Name a voice of the transcript, by hand",
+        "description": "Sets `source: user`; a final transcript delivered again keeps it.",
+        "security": [
+          {
+            "oauth2": [
+              "meetings:write"
+            ]
+          }
+        ],
+        "x-scopes": [
+          "meetings:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NameSpeaker"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The transcript",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Transcript"
                 }
               }
             }

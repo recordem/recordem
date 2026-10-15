@@ -1,6 +1,6 @@
 // A meeting: its recording's transcript with names on the voices, a player where a line's time seeks to it, and,
 // while the call goes on, the transcript growing live over the event stream.
-import type { MeetingDetail, Recording, Segment, Transcript } from "@recordem/sdk";
+import type { MeetingDetail, Participants, Recording, Segment, Transcript } from "@recordem/sdk";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { callApp, clock, day, duration, speakerName, time } from "./format";
@@ -147,6 +147,7 @@ function RecordingView({ rec, onChange }: { rec: Recording; onChange: () => void
   const [src, setSrc] = useState<string | null>(null);
   const [now, setNow] = useState(-1);
   const [stopping, setStopping] = useState(false);
+  const [people, setPeople] = useState<Participants | null>(rec.participants ?? null);
   const audio = useRef<HTMLAudioElement>(null);
   const bottom = useRef<HTMLDivElement>(null);
   const live = !rec.ended_at || rec.transcript === "live";
@@ -172,9 +173,10 @@ function RecordingView({ rec, onChange }: { rec: Recording; onChange: () => void
         if (e.type === "transcript.live") {
           const { from, segments } = e.data as { from: number; segments: Segment[] };
           setT((cur) => ({ recording_id: rec.id, status: "live", language: cur?.language ?? null, model: cur?.model ?? null,
-            segments: [...(cur?.segments ?? []).slice(0, from), ...segments] }));
+            segments: [...(cur?.segments ?? []).slice(0, from), ...segments], speakers: cur?.speakers ?? [] }));
           setMissing(false);
         }
+        if (e.type === "participants.updated") setPeople(e.data as Participants);
         if (e.type === "transcript.final" || e.type === "recording.ended" || e.type === "track.ready") { void loadTranscript(); onChange(); }
       },
     });
@@ -190,6 +192,15 @@ function RecordingView({ rec, onChange }: { rec: Recording; onChange: () => void
     setNow(segs.findLastIndex((s) => s.start_ms <= ms));
   };
   const stop = async () => { setStopping(true); await api.POST("/v1/recordings/{id}/stop", { params: { path: { id: rec.id } } }); };
+  const names = t?.speakers ?? [];
+  // A voice of the other side gets a name by hand; an empty one takes it back to "Speaker N".
+  const rename = async (s: Segment) => {
+    if (!s.speaker || s.channel !== "system") return;
+    const name = prompt("Who is this?", speakerName(s, segs, names));
+    if (name === null) return;
+    const { data } = await api.PATCH("/v1/recordings/{id}/transcript/speakers", { params: { path: { id: rec.id } }, body: { label: s.speaker, name: name.trim() || null } });
+    if (data) setT(data);
+  };
 
   return (
     <>
@@ -198,6 +209,7 @@ function RecordingView({ rec, onChange }: { rec: Recording; onChange: () => void
           <span className="badge live">● Recording</span>
           <span className="muted">The transcript is a draft until the call ends.</span>
           {!rec.ended_at && <button className="ghost small" disabled={stopping} onClick={stop}>{stopping ? "Asked to stop…" : "Stop recording"}</button>}
+          {people && people.people.length > 0 && <InCall p={people} />}
         </div>
       )}
       {src && (
@@ -213,11 +225,14 @@ function RecordingView({ rec, onChange }: { rec: Recording; onChange: () => void
       {missing && !live && <p className="muted">No transcript for this recording.</p>}
       <ol className="transcript">
         {segs.map((s, i) => {
-          const who = speakerName(s, segs);
-          const same = i > 0 && speakerName(segs[i - 1], segs) === who;
+          const who = speakerName(s, segs, names);
+          const same = i > 0 && speakerName(segs[i - 1], segs, names) === who;
+          const nameable = s.channel === "system" && !!s.speaker && !live;
           return (
             <li key={i} className={`${s.channel}${i === now ? " now" : ""}${same ? " cont" : ""}`}>
-              {!same && <span className="who">{who}</span>}
+              {!same && (nameable
+                ? <button className="who" title="Name this voice" onClick={() => rename(s)}>{who}</button>
+                : <span className="who">{who}</span>)}
               <button className="ts" onClick={() => seek(s)} disabled={!src} title="Play from here">{clock(s.start_ms)}</button>
               <p>{s.text}</p>
             </li>
@@ -226,5 +241,20 @@ function RecordingView({ rec, onChange }: { rec: Recording; onChange: () => void
       </ol>
       <div ref={bottom} />
     </>
+  );
+}
+
+/** Who the call app shows in the call, the ones speaking first. */
+function InCall({ p }: { p: Participants }) {
+  const people = [...p.people].sort((a, b) => Number(b.speaking) - Number(a.speaking));
+  return (
+    <p className="in-call muted small">
+      {people.map((x, i) => (
+        <span key={x.name}>
+          {i > 0 && ", "}
+          <span className={p.visible && x.speaking ? "speaking" : undefined}>{x.self ? `${x.name} (you)` : x.name}</span>
+        </span>
+      ))}
+    </p>
   );
 }

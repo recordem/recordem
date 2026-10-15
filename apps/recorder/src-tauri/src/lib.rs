@@ -586,6 +586,7 @@ async fn start(app: AppHandle, meeting_id: Option<String>) -> Result<(), String>
     };
     // The live transcript: a thread transcribes as the capture goes, a task sends what it makes once the recording
     // exists on the server.
+    let people = participants::Latest::default();
     let (live_tx, live) = if cfg.live {
         let (frames_tx, frames) = std::sync::mpsc::channel();
         let (segs_tx, segs) = tokio::sync::mpsc::unbounded_channel();
@@ -595,10 +596,10 @@ async fn start(app: AppHandle, meeting_id: Option<String>) -> Result<(), String>
                 eprintln!("live transcript stopped: {e}");
             }
         });
-        let (cfg2, id, stop2) = (cfg.clone(), meta.id.clone(), stop.clone());
+        let (cfg2, id, stop2, people) = (cfg.clone(), meta.id.clone(), stop.clone(), people.clone());
         let sender = tauri::async_runtime::spawn(async move {
             if created.await.unwrap_or(false) {
-                live::send(cfg2, id, segs, stop2).await;
+                live::send(cfg2, id, segs, stop2, people).await;
             }
         });
         (Some(frames_tx), Some((worker, sender)))
@@ -615,9 +616,9 @@ async fn start(app: AppHandle, meeting_id: Option<String>) -> Result<(), String>
         let app = app.clone();
         mute::watch(source, id, stop.clone(), move |m| set_muted(&app, m));
     }
-    // Who speaks, from the call app's window: names the voices after the call.
+    // Who is in the call and who speaks, from the call app's window: shown live, names the voices after the call.
     if let Some(id) = call.app_id.clone() {
-        participants::watch(id, dir.clone(), std::time::Instant::now(), stop.clone());
+        participants::watch(id, dir.clone(), std::time::Instant::now(), stop.clone(), people);
     }
     let app2 = app.clone();
     let muted = st.muted.clone();
@@ -763,17 +764,14 @@ async fn process(app: &AppHandle, dir: PathBuf, warning: Option<String>) {
                 Ok(Err(e)) => return set_phase(app, Phase::Failed { message: format!("transcription failed: {e}") }),
                 Err(e) => return set_phase(app, Phase::Failed { message: format!("transcription failed: {e}") }),
             };
-            // Names for the voices, from who the call app showed speaking. Kept next to the transcript until the
-            // contract carries them (PARTICIPANTS.md).
-            let named = participants::name_voices(&participants::read(&dir), &segments);
-            if !named.is_empty() {
-                let _ = write_json(&dir.join("speakers.json"), &participants::names(&named));
-            }
+            // Names for the voices, from who the call app showed speaking.
+            let speakers = participants::names(&participants::name_voices(&participants::read(&dir), &segments));
             let t = Transcript {
                 ended_at: meta.ended_at.clone().unwrap_or_else(now),
                 language: Some(spoken(&segments)),
                 model: Some(model),
                 segments,
+                speakers,
             };
             if let Err(e) = write_json(&tpath, &t) {
                 return set_phase(app, Phase::Failed { message: e.to_string() });

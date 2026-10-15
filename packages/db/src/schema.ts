@@ -26,6 +26,7 @@ export const recordings = pgTable("recordings", {
   startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
   endedAt: timestamp("ended_at", { withTimezone: true }),
   stopRequestedAt: timestamp("stop_requested_at", { withTimezone: true }),   // "stop" from the portal, read by the recorder
+  participants: jsonb("participants").$type<Participants>(),                 // who the call app showed, last time it was read
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index("recordings_meeting").on(t.meetingId)]);
 
@@ -37,6 +38,9 @@ export type Segment = {
   text: string;
 };
 
+export type SpeakerName = { label: string; name: string; source: "platform" | "llm" | "user"; confidence?: number | null };
+export type Participants = { t_ms: number; visible: boolean; people: { name: string; speaking: boolean; muted?: boolean | null; self?: boolean }[] };
+
 /** The transcript of a recording: `live` while the call goes on (appended in batches), then `final`, which replaces it. */
 export const transcripts = pgTable("transcripts", {
   recordingId: uuid("recording_id").primaryKey().references(() => recordings.id, { onDelete: "cascade" }),
@@ -45,6 +49,7 @@ export const transcripts = pgTable("transcripts", {
   language: text("language"),
   model: text("model"),
   segments: jsonb("segments").$type<Segment[]>().notNull().default([]),
+  speakers: jsonb("speakers").$type<SpeakerName[]>().notNull().default([]),   // names for the voices ("system:1" → …)
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

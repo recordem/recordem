@@ -2,7 +2,8 @@
 // goes through the engine (asr.rs) right away, so the text reaches the API (`POST /v1/recordings/{id}/live`) seconds after it is spoken.
 // It is a draft: the voices on the other side aren't told apart (diarization needs the whole call), and the pass after
 // the call (transcribe::run) replaces it. Best effort: nothing here can stop or spoil the recording.
-use crate::api::{self, LiveBatch, Segment};
+use crate::api::{self, LiveBatch, Participants, Segment};
+use crate::participants::Latest;
 use crate::config::Config;
 use std::sync::mpsc;
 use std::time::Duration;
@@ -108,8 +109,9 @@ pub fn transcribe(frames: mpsc::Receiver<Frame>, out: tokio::sync::mpsc::Unbound
 /// the API restarting) is sent again from there and nothing is duplicated. The first batch goes out empty, right away.
 /// An answer with `stop` ("Stop recording" in the portal) stops the recording. When `segments` closes (the recording
 /// ended), what is left goes in a last batch marked `ended`, tried once.
-pub async fn send(cfg: Config, id: String, mut segments: tokio::sync::mpsc::UnboundedReceiver<Vec<Segment>>, stop: CancellationToken) {
+pub async fn send(cfg: Config, id: String, mut segments: tokio::sync::mpsc::UnboundedReceiver<Vec<Segment>>, stop: CancellationToken, people: Latest) {
     let mut all: Vec<Segment> = vec![];
+    let mut sent: Option<Participants> = None; // who the API was last told is in the call
     let mut held = 0usize; // how many the API has
     let mut open = true;
     let mut first = true;
@@ -128,10 +130,16 @@ pub async fn send(cfg: Config, id: String, mut segments: tokio::sync::mpsc::Unbo
             }
         }
         first = false;
-        let batch = LiveBatch { from: held, segments: &all[held..], ended: !open };
+        // Who is in the call goes along only when it changed (when it was read is no change).
+        let now = people.lock().unwrap().as_ref().map(|l| l.participants());
+        let changed = now.as_ref().filter(|n| sent.as_ref().is_none_or(|s| Participants { t_ms: n.t_ms, ..s.clone() } != **n));
+        let batch = LiveBatch { from: held, segments: &all[held..], participants: changed, ended: !open };
         match api::live(&cfg, &id, &batch).await {
             Ok(ack) => {
                 held = ack.n.min(all.len());
+                if changed.is_some() {
+                    sent = now.clone();
+                }
                 if ack.stop && open {
                     stop.cancel();
                 }

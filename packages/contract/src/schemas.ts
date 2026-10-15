@@ -33,6 +33,26 @@ export const Segment = z.object({
   text: z.string().max(10_000),
 }).openapi("Segment");
 
+export const SpeakerName = z.object({
+  label: z.string().max(40).openapi({ description: 'A voice of the transcript: "system:1", "system:2", …', example: "system:1" }),
+  name: z.string().trim().min(1).max(200),
+  source: z.enum(["platform", "llm", "user"]).openapi({ description: "platform: the call app showed them speaking; llm: inferred from what was said; user: set by hand" }),
+  confidence: z.number().min(0).max(1).nullish().openapi({ description: "How sure the source is, 0–1; none for user" }),
+}).openapi("SpeakerName");
+
+export const Participant = z.object({
+  name: z.string().max(200),
+  speaking: z.boolean(),
+  muted: z.boolean().nullish(),
+  self: z.boolean().optional().openapi({ description: "Whoever runs the recorder" }),
+}).openapi("Participant");
+
+export const Participants = z.object({
+  t_ms: z.number().int().min(0).openapi({ description: "When, from the start of the recording" }),
+  visible: z.boolean().openapi({ description: "The call app could be read; false: people are the last ones seen, nobody is known to speak" }),
+  people: z.array(Participant).max(500),
+}).openapi("Participants");
+
 export const ContextRequest = z.object({
   at: datetime().optional().openapi({ description: "When the call started; default now" }),
   url: z.string().max(2000).nullish().openapi({ description: "The call's link, when the recorder can see it" }),
@@ -65,11 +85,13 @@ export const Recording = z.object({
   started_at: datetime(), ended_at: datetime().nullable(),
   transcript: z.enum(["none", "live", "final"]),
   tracks: z.array(Track),
+  participants: Participants.optional().openapi({ description: "Who the call app showed in the call, last time the recorder read it; absent when it couldn't" }),
 }).openapi("Recording");
 
 export const LiveBatch = z.object({
   from: z.number().int().min(0).openapi({ description: "Index of the first segment in this batch" }),
   segments: z.array(Segment).max(2_000),
+  participants: Participants.optional().openapi({ description: "Who is in the call now; sent when it changes" }),
   ended: z.boolean().optional().openapi({ description: "The last batch: the recording ended" }),
 }).openapi("LiveBatch");
 
@@ -83,13 +105,20 @@ export const FinalTranscript = z.object({
   language: z.string().max(20).nullish(),
   model: z.string().max(80).nullish(),
   segments: z.array(Segment).max(20_000),
+  speakers: z.array(SpeakerName).max(200).optional().openapi({ description: "Names for the voices; names set by hand (source user) are kept" }),
 }).openapi("FinalTranscript");
 
 export const Transcript = z.object({
   recording_id: z.string().uuid(), status: z.enum(["live", "final"]),
   language: z.string().nullable(), model: z.string().nullable(),
   segments: z.array(Segment),
+  speakers: z.array(SpeakerName).openapi({ description: "Names for the voices; a label not listed has none" }),
 }).openapi("Transcript");
+
+export const NameSpeaker = z.object({
+  label: z.string().max(40).openapi({ example: "system:1" }),
+  name: z.string().trim().max(200).nullable().openapi({ description: "null or empty: the voice goes back to unnamed" }),
+}).openapi("NameSpeaker");
 
 export const MeetingDetail = Meeting.extend({ recordings: z.array(Recording) }).openapi("MeetingDetail");
 
@@ -100,11 +129,11 @@ export const TrackUrl = z.object({
 
 export const StreamEvent = z.object({
   id: z.string().openapi({ description: "Event id (also the SSE id)" }),
-  type: z.enum(["recording.created", "recording.ended", "recording.stop_requested", "recording.deleted", "meeting.deleted", "transcript.live", "transcript.final", "track.ready"]),
+  type: z.enum(["recording.created", "recording.ended", "recording.stop_requested", "recording.deleted", "meeting.deleted", "transcript.live", "transcript.final", "transcript.speakers", "participants.updated", "track.ready"]),
   at: datetime(),
   meeting_id: z.string().uuid(),
   recording_id: z.string().uuid().nullable().openapi({ description: "null for meeting.deleted" }),
-  data: z.record(z.string(), z.unknown()).openapi({ description: "transcript.live: {from, segments}; track.ready: Track; others: {}" }),
+  data: z.record(z.string(), z.unknown()).openapi({ description: "transcript.live: {from, segments}; transcript.speakers: {speakers}; participants.updated: Participants; track.ready: Track; others: {}" }),
 }).openapi("StreamEvent");
 
 export const UpdateMeeting = z.object({

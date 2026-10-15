@@ -34,6 +34,35 @@ pub struct Segment {
     pub speaker: Option<String>,
 }
 
+/// A name for a voice of the transcript: "system:1" → "Ana Souza".
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpeakerName {
+    pub label: String,
+    pub name: String,
+    pub source: String, // platform | llm | user
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f64>,
+}
+
+/// One person the call app shows.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Participant {
+    pub name: String,
+    pub speaking: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub muted: Option<bool>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not", rename = "self")]
+    pub is_self: bool,
+}
+
+/// Who is in the call, at `t_ms` from the start of the recording.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Participants {
+    pub t_ms: u64,
+    pub visible: bool,
+    pub people: Vec<Participant>,
+}
+
 /// The final transcript as kept on disk (transcript.json) and sent with PUT /v1/recordings/{id}/transcript.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Transcript {
@@ -41,6 +70,8 @@ pub struct Transcript {
     pub language: Option<String>,
     pub model: Option<String>,
     pub segments: Vec<Segment>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub speakers: Vec<SpeakerName>,
 }
 
 #[derive(Debug, Serialize)]
@@ -109,6 +140,9 @@ pub async fn deliver(c: &Config, id: &str, t: &Transcript) -> anyhow::Result<()>
 pub struct LiveBatch<'a> {
     pub from: usize,
     pub segments: &'a [Segment],
+    /// Who is in the call now, when it changed since the last batch the API took.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub participants: Option<&'a Participants>,
     /// The last batch: the recording ended.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub ended: bool,

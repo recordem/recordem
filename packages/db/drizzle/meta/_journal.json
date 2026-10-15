@@ -15,6 +15,13 @@
       "when": 1792069201913,
       "tag": "0001_recordings",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792094051777,
+      "tag": "0002_speakers_participants",
+      "breakpoints": true
     }
   ]
 }

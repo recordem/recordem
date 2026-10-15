@@ -1,4 +1,4 @@
-import type { Segment } from "@recordem/sdk";
+import type { Segment, SpeakerName } from "@recordem/sdk";
 
 export const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 export const day = (d: Date) => d.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
@@ -17,9 +17,12 @@ export const clock = (ms: number) => {
   return `${h ? `${h}:${String(m).padStart(2, "0")}` : m}:${String(r).padStart(2, "0")}`;
 };
 
-/** "You" for the recorder's own mic; the other side is "Them" when it is one voice, numbered when several. */
-export function speakerName(s: Segment, all: Segment[]) {
+/** "You" for the recorder's own mic; the other side by name when the voice has one, else "Them" when it is one voice,
+ * numbered when several. */
+export function speakerName(s: Segment, all: Segment[], names: SpeakerName[] = []) {
   if (s.channel === "mic") return "You";
+  const named = names.find((n) => n.label === s.speaker);
+  if (named) return named.name;
   const voices = new Set(all.filter((x) => x.channel === "system").map((x) => x.speaker ?? "system"));
   if (voices.size <= 1) return "Them";
   return `Speaker ${(s.speaker ?? "").split(":")[1] ?? "?"}`;

@@ -11,6 +11,8 @@ export type MeetingDetail = Schemas["MeetingDetail"];
 export type Recording = Schemas["Recording"];
 export type Transcript = Schemas["Transcript"];
 export type Segment = Schemas["Segment"];
+export type SpeakerName = Schemas["SpeakerName"];
+export type Participants = Schemas["Participants"];
 export type StreamEvent = Schemas["StreamEvent"];
 
 export type Options = {

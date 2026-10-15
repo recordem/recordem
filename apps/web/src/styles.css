@@ -82,6 +82,10 @@ button:disabled { opacity: 0.45; cursor: default; }
 .transcript li.now { background: var(--now); }
 .transcript .who { grid-column: 2; font-size: 13px; font-weight: 650; }
 .transcript li.mic .who { color: var(--you); }
+.transcript button.who { justify-self: start; background: none; color: inherit; padding: 0; border: 0; font: inherit; font-size: 13px; font-weight: 650; cursor: pointer; }
+.transcript button.who:hover { text-decoration: underline; }
+.in-call { flex-basis: 100%; margin: 0; }
+.in-call .speaking { color: var(--accent); font-weight: 600; }
 .transcript .ts { grid-column: 1; grid-row: span 1; align-self: start; background: none; color: var(--muted); padding: 2px 0; font-size: 12px; font-variant-numeric: tabular-nums; text-align: left; }
 .transcript .ts:not(:disabled):hover { color: var(--fg); text-decoration: underline; }
 .transcript p { grid-column: 2; margin: 0; }

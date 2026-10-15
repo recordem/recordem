@@ -15,8 +15,10 @@ export const recordingView = (r: Row<typeof recordings>, ts: Row<typeof tracks>[
   id: r.id, meeting_id: r.meetingId, owner: r.owner, started_at: r.startedAt.toISOString(), ended_at: iso(r.endedAt),
   transcript: transcript?.status ?? ("none" as const),
   tracks: ts.map(trackView),
+  participants: r.participants ?? undefined,
 });
 
 export const transcriptView = (t: Row<typeof transcripts>) => ({
   recording_id: t.recordingId, status: t.status, language: t.language, model: t.model, segments: t.segments,
+  speakers: t.speakers,
 });

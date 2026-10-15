@@ -226,6 +226,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/recordings/{id}/transcript/speakers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Name a voice of the transcript, by hand
+         * @description Sets `source: user`; a final transcript delivered again keeps it.
+         */
+        patch: operations["nameSpeaker"];
+        trace?: never;
+    };
     "/v1/recordings/{id}/stop": {
         parameters: {
             query?: never;
@@ -284,6 +304,7 @@ export interface components {
             /** @description Index of the first segment in this batch */
             from: number;
             segments: components["schemas"]["Segment"][];
+            participants?: components["schemas"]["Participants"];
             /** @description The last batch: the recording ended */
             ended?: boolean;
         };
@@ -300,6 +321,21 @@ export interface components {
             language?: string | null;
             text: string;
         };
+        /** @description Who is in the call now; sent when it changes */
+        Participants: {
+            /** @description When, from the start of the recording */
+            t_ms: number;
+            /** @description The call app could be read; false: people are the last ones seen, nobody is known to speak */
+            visible: boolean;
+            people: components["schemas"]["Participant"][];
+        };
+        Participant: {
+            name: string;
+            speaking: boolean;
+            muted?: boolean | null;
+            /** @description Whoever runs the recorder */
+            self?: boolean;
+        };
         Recording: {
             /** Format: uuid */
             id: string;
@@ -313,6 +349,7 @@ export interface components {
             /** @enum {string} */
             transcript: "none" | "live" | "final";
             tracks: components["schemas"]["Track"][];
+            participants?: components["schemas"]["Participants"] & unknown;
         };
         Track: {
             /** @enum {string} */
@@ -382,6 +419,23 @@ export interface components {
             language: string | null;
             model: string | null;
             segments: components["schemas"]["Segment"][];
+            /** @description Names for the voices; a label not listed has none */
+            speakers: components["schemas"]["SpeakerName"][];
+        };
+        SpeakerName: {
+            /**
+             * @description A voice of the transcript: "system:1", "system:2", …
+             * @example system:1
+             */
+            label: string;
+            name: string;
+            /**
+             * @description platform: the call app showed them speaking; llm: inferred from what was said; user: set by hand
+             * @enum {string}
+             */
+            source: "platform" | "llm" | "user";
+            /** @description How sure the source is, 0–1; none for user */
+            confidence?: number | null;
         };
         Match: {
             /** Format: uuid */
@@ -415,18 +469,26 @@ export interface components {
              */
             meeting_id: string | null;
         };
+        NameSpeaker: {
+            /** @example system:1 */
+            label: string;
+            /** @description null or empty: the voice goes back to unnamed */
+            name: string | null;
+        };
         FinalTranscript: {
             /** Format: date-time */
             ended_at: string;
             language?: string | null;
             model?: string | null;
             segments: components["schemas"]["Segment"][];
+            /** @description Names for the voices; names set by hand (source user) are kept */
+            speakers?: components["schemas"]["SpeakerName"][];
         };
         StreamEvent: {
             /** @description Event id (also the SSE id) */
             id: string;
             /** @enum {string} */
-            type: "recording.created" | "recording.ended" | "recording.stop_requested" | "recording.deleted" | "meeting.deleted" | "transcript.live" | "transcript.final" | "track.ready";
+            type: "recording.created" | "recording.ended" | "recording.stop_requested" | "recording.deleted" | "meeting.deleted" | "transcript.live" | "transcript.final" | "transcript.speakers" | "participants.updated" | "track.ready";
             /** Format: date-time */
             at: string;
             /** Format: uuid */
@@ -436,7 +498,7 @@ export interface components {
              * @description null for meeting.deleted
              */
             recording_id: string | null;
-            /** @description transcript.live: {from, segments}; track.ready: Track; others: {} */
+            /** @description transcript.live: {from, segments}; transcript.speakers: {speakers}; participants.updated: Participants; track.ready: Track; others: {} */
             data: {
                 [key: string]: unknown;
             };
@@ -1233,6 +1295,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Recording"];
+                };
+            };
+            /** @description Missing or invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Token lacks a required scope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found in this workspace */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    nameSpeaker: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NameSpeaker"];
+            };
+        };
+        responses: {
+            /** @description The transcript */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Transcript"];
                 };
             };
             /** @description Missing or invalid token */

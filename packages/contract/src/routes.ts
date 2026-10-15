@@ -1,7 +1,7 @@
 // Every route of the API. apps/api implements them; nothing else is served under /v1.
 import { createRoute, z } from "@hono/zod-openapi";
 import {
-  ContextRequest, CreateRecording, ErrorBody, FinalTranscript, LiveAck, LiveBatch, Match, Me, Meeting, MeetingDetail, Page,
+  ContextRequest, CreateRecording, ErrorBody, FinalTranscript, LiveAck, LiveBatch, Match, Me, Meeting, MeetingDetail, NameSpeaker, Page,
   Recording, StreamEvent, Transcript, Track, TrackUrl, UpdateMeeting, MoveRecording,
 } from "./schemas";
 import type { Scope } from "./scopes";
@@ -84,6 +84,14 @@ export const getTranscript = createRoute({
   method: "get", path: "/v1/recordings/{id}/transcript", operationId: "getTranscript", tags: ["recordings"],
   summary: "A recording's transcript (live or final)", ...needs("transcripts:read"),
   request: { params: id },
+  responses: { 200: json(Transcript, "The transcript"), ...errors, ...notFound },
+});
+
+export const nameSpeaker = createRoute({
+  method: "patch", path: "/v1/recordings/{id}/transcript/speakers", operationId: "nameSpeaker", tags: ["recordings"],
+  summary: "Name a voice of the transcript, by hand", description: "Sets `source: user`; a final transcript delivered again keeps it.",
+  ...needs("meetings:write"),
+  request: { params: id, ...body(NameSpeaker) },
   responses: { 200: json(Transcript, "The transcript"), ...errors, ...notFound },
 });
 

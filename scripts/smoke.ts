@@ -104,14 +104,28 @@ r = await call("POST", `/v1/recordings/${recId}/live`, { from: 0, segments: [seg
 step("live batch", (await r.json()).n === 2);
 r = await call("POST", `/v1/recordings/${recId}/live`, { from: 5, segments: [seg(5, "mic", "lost before")] });
 step("live batch after a gap → resend from 2", (await r.json()).n === 2);
+const people = { t_ms: 1500, visible: true, people: [{ name: "Ana Souza", speaking: true }, { name: "Bruno Lima", speaking: false, self: true }] };
+r = await call("POST", `/v1/recordings/${recId}/live`, { from: 2, segments: [], participants: people });
+r = await call("GET", `/v1/recordings/${recId}`);
+step("who is in the call, held on the recording", ((await r.json()) as { participants?: typeof people }).participants?.people[0]?.name === "Ana Souza");
 
 r = await call("PUT", `/v1/recordings/${recId}/transcript`, { ended_at: new Date().toISOString(), language: "en", model: "whisper large-v3-turbo",
-  segments: [seg(1, "system", "Hello there"), seg(0, "mic", "Hi")] });
-const fin = await r.json() as { status: string; segments: { text: string }[] };
+  segments: [seg(1, "system", "Hello there"), seg(0, "mic", "Hi")],
+  speakers: [{ label: "system:1", name: "Ana Souza", source: "platform", confidence: 0.97 }, { label: "system:2", name: "Carla Dias", source: "platform", confidence: 0.8 }] });
+const fin = await r.json() as { status: string; segments: { text: string }[]; speakers: { label: string; name: string; source: string }[] };
 step("final transcript replaces the draft, sorted", fin.status === "final" && fin.segments[0].text === "Hi", fin.segments.map((x) => x.text));
+step("voices named", fin.speakers.length === 2 && fin.speakers[0].name === "Ana Souza", fin.speakers);
+r = await call("PATCH", `/v1/recordings/${recId}/transcript/speakers`, { label: "system:2", name: "Carla Mendes" });
+r = await call("PUT", `/v1/recordings/${recId}/transcript`, { ended_at: new Date().toISOString(), segments: [seg(0, "mic", "Hi")],
+  speakers: [{ label: "system:2", name: "Carla Dias", source: "platform" }] });
+const again = (await r.json()) as typeof fin;
+step("a name set by hand survives the transcript delivered again", again.speakers.find((x) => x.label === "system:2")?.name === "Carla Mendes", again.speakers);
+r = await call("PUT", `/v1/recordings/${recId}/transcript`, { ended_at: new Date().toISOString(), language: "en", model: "whisper large-v3-turbo",
+  segments: [seg(1, "system", "Hello there"), seg(0, "mic", "Hi")] });
 
 await Bun.sleep(200);
-step("SSE delivered live and final events", events.some((e) => e.type === "transcript.live" && e.data.from === 0) && events.some((e) => e.type === "transcript.final"), events.map((e) => e.type));
+step("SSE delivered live and final events", events.some((e) => e.type === "transcript.live" && e.data.from === 0) && events.some((e) => e.type === "transcript.final")
+  && events.some((e) => e.type === "participants.updated") && events.some((e) => e.type === "transcript.speakers"), events.map((e) => e.type));
 const bytes = new Uint8Array(4096).map((_, i) => i % 251);
 r = await fetch(`${API}/v1/recordings/${recId}/tracks/mic_hq`, { method: "PUT", headers: { ...auth.headers, "content-type": "audio/ogg" }, body: bytes });
 step("upload mic_hq track", r.ok && (await r.json()).bytes === bytes.length);

@@ -2,7 +2,7 @@
 // audio) and how anyone with the right scope reads it back. Every query is scoped to the token's workspace.
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import { routes } from "@recordem/contract";
-import { meetings, recordings, tracks, transcripts, type Db, type Segment } from "@recordem/db";
+import { meetings, recordings, tracks, transcripts, type Db, type Segment, type SpeakerName } from "@recordem/db";
 import { and, asc, eq, inArray, lte, sql } from "drizzle-orm";
 import { HTTPException } from "hono/http-exception";
 import { streamSSE } from "hono/streaming";
@@ -176,12 +176,16 @@ export function mount(app: OpenAPIHono<Env>, db: Db) {
     const stop = !!r.stopRequestedAt;
     const [t] = await db.select().from(transcripts).where(eq(transcripts.recordingId, r.id));
     if (t?.status === "final") return c.json({ n: b.from + b.segments.length, stop: false }, 200);
+    const ev = { meeting_id: r.meetingId, recording_id: r.id };
+    if (b.participants) {
+      await db.update(recordings).set({ participants: b.participants }).where(eq(recordings.id, r.id));
+      await publish(a.workspace, { type: "participants.updated", ...ev, data: b.participants });
+    }
     const held = t?.segments ?? [];
     if (b.from > held.length) return c.json({ n: held.length, stop }, 200);
     const segments: Segment[] = [...held.slice(0, b.from), ...b.segments];
     await db.insert(transcripts).values({ recordingId: r.id, workspaceId: a.workspace, status: "live", segments })
       .onConflictDoUpdate({ target: transcripts.recordingId, set: { segments, updatedAt: new Date() } });
-    const ev = { meeting_id: r.meetingId, recording_id: r.id };
     if (b.segments.length) await publish(a.workspace, { type: "transcript.live", ...ev, data: { from: b.from, segments: b.segments } });
     if (b.ended && !r.endedAt) {
       await db.update(recordings).set({ endedAt: new Date() }).where(eq(recordings.id, r.id));
@@ -195,7 +199,11 @@ export function mount(app: OpenAPIHono<Env>, db: Db) {
     const r = await recording(a, c.req.valid("param").id, true);
     const b = c.req.valid("json");
     const segments = [...b.segments].sort((x, y) => x.start_ms - y.start_ms);
-    const values = { status: "final" as const, language: b.language ?? null, model: b.model ?? null, segments, updatedAt: new Date() };
+    // A name someone set by hand wins over what the recorder found (a retry, or the same call delivered again).
+    const [prev] = await db.select({ speakers: transcripts.speakers }).from(transcripts).where(eq(transcripts.recordingId, r.id));
+    const byHand = (prev?.speakers ?? []).filter((s) => s.source === "user");
+    const speakers = [...byHand, ...(b.speakers ?? []).filter((s) => !byHand.some((u) => u.label === s.label))];
+    const values = { status: "final" as const, language: b.language ?? null, model: b.model ?? null, segments, speakers, updatedAt: new Date() };
     const [t] = await db.insert(transcripts).values({ recordingId: r.id, workspaceId: a.workspace, ...values })
       .onConflictDoUpdate({ target: transcripts.recordingId, set: values }).returning();
     const endedAt = new Date(b.ended_at);
@@ -204,6 +212,21 @@ export function mount(app: OpenAPIHono<Env>, db: Db) {
       .where(eq(meetings.id, r.meetingId));
     await publish(a.workspace, { type: "transcript.final", meeting_id: r.meetingId, recording_id: r.id, data: {} });
     return c.json(transcriptView(t), 200);
+  });
+
+  app.openapi(routes.nameSpeaker, async (c) => {
+    const a = c.get("actor");
+    const r = await recording(a, c.req.valid("param").id);
+    const { label, name } = c.req.valid("json");
+    const [t] = await db.select().from(transcripts).where(eq(transcripts.recordingId, r.id));
+    if (!t) throw notFound("transcript");
+    const speakers: SpeakerName[] = [
+      ...t.speakers.filter((s) => s.label !== label),
+      ...(name ? [{ label, name, source: "user" as const, confidence: null }] : []),
+    ];
+    const [u] = await db.update(transcripts).set({ speakers, updatedAt: new Date() }).where(eq(transcripts.recordingId, r.id)).returning();
+    await publish(a.workspace, { type: "transcript.speakers", meeting_id: r.meetingId, recording_id: r.id, data: { speakers } });
+    return c.json(transcriptView(u), 200);
   });
 
   app.openapi(routes.getTranscript, async (c) => {

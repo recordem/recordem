@@ -80,6 +80,11 @@ Fixtures: every profile is tested against real AX snapshots taken with `probe du
       Live: 80 s, tab → PiP → PiP closed → other Space → back: 5 segments, names throughout except while unreadable.
 - [ ] Meet in English: only the roster words and "(You)" differ; untested live
 - [ ] Zoom (no real fixture yet), Teams, Slack huddle: need the apps and a call
+- [x] In the contract: `FinalTranscript.speakers` / `Transcript.speakers` (`{label, name, source, confidence}`, the
+      overlap's share as confidence), `PATCH /v1/recordings/{id}/transcript/speakers` to name a voice by hand (kept
+      over what a later delivery says), `LiveBatch.participants` → `Recording.participants` and the
+      `participants.updated` event; the portal shows names, renames voices, and lists who is in the call live.
+- [ ] Not yet tried in a real call: the app with the above (dev-build waits for no recording in progress)
 - [ ] Server side: `GET /v1/recorder/profiles` and a health report route (contract first)
 - [ ] First seconds of a capture sometimes scrape nothing (seen once, 7.7 s): to explain
 - [ ] Video only sees what the window shows: hidden/minimised windows and off-screen tiles give no crop

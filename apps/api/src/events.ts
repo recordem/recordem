@@ -3,7 +3,7 @@
 import { RedisClient } from "bun";
 
 export type StreamEvent = {
-  id: string; type: "recording.created" | "recording.ended" | "recording.stop_requested" | "recording.deleted" | "meeting.deleted" | "transcript.live" | "transcript.final" | "track.ready";
+  id: string; type: "recording.created" | "recording.ended" | "recording.stop_requested" | "recording.deleted" | "meeting.deleted" | "transcript.live" | "transcript.final" | "transcript.speakers" | "participants.updated" | "track.ready";
   at: string; meeting_id: string; recording_id: string | null; data: Record<string, unknown>;
 };
 type Listener = (e: StreamEvent) => void;
