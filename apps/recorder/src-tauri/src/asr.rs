@@ -40,16 +40,18 @@ pub fn describe(setting: &str) -> String {
     match setting.split_once(':').unwrap_or((setting, "")) {
         ("parakeet", "") => "parakeet v3".into(),
         ("parakeet", model) => format!("parakeet {model}"),
-        _ => "whisper large-v3-turbo q5_0".into(),
+        _ => WHISPER_NAME.into(),
     }
 }
 
 // ---------------------------------------------------------------------------------------------------------------
 // Whisper
 
+const WHISPER_NAME: &str = "whisper large-v3-turbo q5_0";
+
 static WHISPER: OnceLock<WhisperContext> = OnceLock::new();
 
-pub(crate) fn whisper_ctx() -> anyhow::Result<&'static WhisperContext> {
+fn whisper_ctx() -> anyhow::Result<&'static WhisperContext> {
     if let Some(c) = WHISPER.get() {
         return Ok(c);
     }
@@ -73,7 +75,7 @@ impl Whisper {
 
 impl Engine for Whisper {
     fn name(&self) -> String {
-        "whisper large-v3-turbo q5_0".into()
+        WHISPER_NAME.into()
     }
 
     /// One language: that one, no detection. Several: Whisper's language detection over the turn, restricted to

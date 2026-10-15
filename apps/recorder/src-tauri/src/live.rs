@@ -3,8 +3,8 @@
 // It is a draft: the voices on the other side aren't told apart (diarization needs the whole call), and the pass after
 // the call (transcribe::run) replaces it. Best effort: nothing here can stop or spoil the recording.
 use crate::api::{self, LiveBatch, Participants, Segment};
-use crate::participants::Latest;
 use crate::config::Config;
+use crate::participants::Latest;
 use std::sync::mpsc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;

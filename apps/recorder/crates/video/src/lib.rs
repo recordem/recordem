@@ -31,6 +31,7 @@ pub struct Segment {
     pub h: u32,
 }
 
+/// Each person's crops in a `width`×`height` recording of the window that ends at `end_ms`.
 ///
 /// `times`: when the window was read (or known not to show the call): a person missing from a reading has no tile
 /// from then on. Times when the window showed the call but couldn't be read (another Space) are left out, so tiles

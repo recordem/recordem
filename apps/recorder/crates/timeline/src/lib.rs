@@ -3,7 +3,7 @@
 // it spoke, if that person clearly dominates and nobody else claims them. What doesn't settle stays unnamed: a
 // wrong name is worse than "system:3".
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// One scrape: at `t_ms` (recording time), these people were shown speaking.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -101,7 +101,7 @@ pub fn assign(turns: &[Turn], intervals: &[Interval], opts: &Options) -> Vec<Ass
     }
     let mut pairs: Vec<((&str, &str), u64)> = by_pair.into_iter().collect();
     pairs.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-    let (mut labels, mut names) = (std::collections::HashSet::new(), std::collections::HashSet::new());
+    let (mut labels, mut names) = (HashSet::new(), HashSet::new());
     let mut out = Vec::new();
     for ((label, name), o) in pairs {
         if labels.contains(label) || names.contains(name) {

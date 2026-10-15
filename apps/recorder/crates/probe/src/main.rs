@@ -5,8 +5,8 @@
 //   probe apps                                running call apps and their windows
 //   probe dump <bundle-id> [file.json]        the app's Accessibility tree, as a fixture
 //   probe scrape <bundle-id|file.json>        what the profiles read from it
-//   probe watch <bundle-id> [secs] [dir]      participants and speakers over time → dir/speakers.jsonl, tiles.jsonl
-//   probe video <bundle-id> <secs> <dir>      watch + record the call window → dir/window.mp4, crops.json, crops.sh
+//   probe watch <bundle-id> [secs] [dir]      participants and speakers over time → dir/speakers.jsonl
+//   probe video <bundle-id> <secs> <dir>      watch + record the call window → dir/window-NN.mp4, segments.json, crops.sh
 //   probe name <speakers.jsonl> <turns.json>  voices named by overlap (works anywhere)
 //
 // Profiles: the built-in ones, merged with $RECORDEM_PROFILES (a server document, {"profiles": [...]}).

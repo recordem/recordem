@@ -30,7 +30,6 @@ unsafe extern "C" {
 unsafe extern "C" {
     fn CFDictionaryGetValue(dict: Ref, key: Ref) -> Ref;
     fn CFNumberGetValue(number: Ref, kind: isize, out: *mut c_void) -> bool;
-    fn CFBooleanGetValue(boolean: Ref) -> bool;
     static kCFBooleanTrue: Ref;
     static kCFTypeArrayCallBacks: c_void;
     fn CFRelease(cf: Ref);
@@ -195,11 +194,9 @@ impl Walk<'_> {
     }
 }
 
-/// The app's tree: the application element, its menu bar and windows below it. Chromium and Electron apps only
-/// build their web content's tree once asked to (AXManualAccessibility); asking twice is harmless.
 /// The app's windows as the window server lists them, on every Space and minimised ones included — Accessibility
 /// only sees the current Space. Titles need the Screen Recording permission (without it they are missing).
-fn server_windows(pid: i32) -> Vec<(Option<String>, Option<Rect>, bool)> {
+fn server_windows(pid: i32) -> Vec<(Option<String>, Option<Rect>)> {
     const ALL_EXCEPT_DESKTOP: u32 = 1 << 4;
     let Some(list) = Cf::owned(unsafe { CGWindowListCopyWindowInfo(ALL_EXCEPT_DESKTOP, 0) }) else { return Vec::new() };
     let get = |d: Ref, k: &str| unsafe { CFDictionaryGetValue(d, Cf::str(k).0) };
@@ -223,13 +220,13 @@ fn server_windows(pid: i32) -> Vec<(Option<String>, Option<Rect>, bool)> {
             (Some(x), Some(y), Some(w), Some(h)) => Some(Rect { x, y, w, h }),
             _ => None,
         };
-        let on = get(d, "kCGWindowIsOnscreen");
-        let onscreen = !on.is_null() && unsafe { CFBooleanGetValue(on) };
-        out.push((string(get(d, "kCGWindowName")), frame, onscreen));
+        out.push((string(get(d, "kCGWindowName")), frame));
     }
     out
 }
 
+/// The app's tree: the application element, its menu bar and windows below it. Chromium and Electron apps only
+/// build their web content's tree once asked to (AXManualAccessibility); asking twice is harmless.
 pub fn snapshot(pid: i32, limits: Limits, scope: &Scope) -> Option<AxNode> {
     let app = Cf::owned(unsafe { AXUIElementCreateApplication(pid) })?;
     unsafe {
@@ -244,7 +241,7 @@ pub fn snapshot(pid: i32, limits: Limits, scope: &Scope) -> Option<AxNode> {
     // Windows Accessibility doesn't show (another Space, minimised): only their title, as `AXWindow` with subrole
     // `RecordemElsewhere` — enough to know a call goes on there.
     let known: Vec<String> = tree.children.iter().filter_map(|w| w.title.clone()).collect();
-    for (title, frame, _) in server_windows(pid) {
+    for (title, frame) in server_windows(pid) {
         let Some(title) = title.filter(|t| !t.is_empty() && !known.contains(t)) else { continue };
         tree.children.push(AxNode {
             role: Some("AXWindow".into()),

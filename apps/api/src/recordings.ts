@@ -233,8 +233,7 @@ export function mount(app: OpenAPIHono<Env>, db: Db) {
       const [row] = await tx.update(transcripts).set({ speakers, updatedAt: new Date() }).where(eq(transcripts.recordingId, r.id)).returning();
       return row;
     });
-    const { speakers } = u;
-    await publish(a.workspace, { type: "transcript.speakers", meeting_id: r.meetingId, recording_id: r.id, data: { speakers } });
+    await publish(a.workspace, { type: "transcript.speakers", meeting_id: r.meetingId, recording_id: r.id, data: { speakers: u.speakers } });
     return c.json(transcriptView(u), 200);
   });
 

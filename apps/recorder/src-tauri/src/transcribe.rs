@@ -1,6 +1,7 @@
 // Local transcription: an engine (asr.rs: Whisper or Parakeet, a setting) transcribes each turn of each channel, and
-// the two channels are merged by time. mic = whoever runs the recorder: Silero VAD finds its turns. system = everyone else on the call: Anarlog's
-// pyannote diarization (CoreML) finds who spoke when, so each turn is one voice and a line never mixes two people.
+// the two channels are merged by time. mic = whoever runs the recorder: Silero VAD finds its turns. system = everyone
+// else on the call: Anarlog's pyannote diarization (CoreML) finds who spoke when, so each turn is one voice and a line
+// never mixes two people.
 use crate::api::Segment;
 use crate::asr::Engine;
 use crate::models;
@@ -146,7 +147,7 @@ pub fn run(mic: &[f32], system: &[f32], languages: &str, vocabulary: &str, engin
     let wm = mic.len() as f32 / total;
     let mic_turns = speech(mic)?.into_iter().map(|(a, b)| (a, b, Some("mic".to_string()))).collect();
     let mut segs = channel(engine.as_mut(), mic, mic_turns, &langs, vocabulary, "mic", progress, 0.0, wm)?;
-    // The other side: about a third of its time goes to telling the voices apart, the rest to Whisper.
+    // The other side: about a third of its time goes to telling the voices apart, the rest to the engine.
     let ws = 1.0 - wm;
     let system_turns = match voices(system, progress, wm, ws / 3.0) {
         Some(v) => v.into_iter().map(|(a, b, k)| (a, b, Some(format!("system:{}", k + 1)))).collect(),

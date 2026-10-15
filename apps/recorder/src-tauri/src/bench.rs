@@ -1,5 +1,6 @@
-// asr-bench (cargo run --release --features bench --bin asr-bench -- …): the same audio through several engines, the way the recorder runs them (Silero VAD turns, then the
-// engine per turn), to pick one with numbers instead of impressions.
+// asr-bench (cargo run --release --features bench --bin asr-bench -- …): the same audio through several engines, the
+// way the recorder runs them (Silero VAD turns, then the engine per turn), to pick one with numbers instead of
+// impressions.
 //
 //   asr-bench call.wav whisper parakeet parakeet:ultra --lang pt,en --out dir
 //
