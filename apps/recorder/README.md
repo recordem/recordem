@@ -35,13 +35,14 @@ and rebuild. Never depend on anything under their `enterprise/` (commercial lice
 
 ```bash
 cargo install tauri-cli --version "^2" --locked     # once; cmake on PATH (whisper.cpp)
-cd apps/recorder/src-tauri
+apps/recorder/scripts/dev-build.sh --setup          # once per Mac: a "Recordem Dev" signing certificate
 RECORDEM_API_URL=http://<server>:39411 RECORDEM_AUTH_URL=http://<server>:39410 RECORDEM_WEB_URL=https://<server>:39412 \
-  APPLE_SIGNING_IDENTITY=- cargo tauri build --bundles app
+  apps/recorder/scripts/dev-build.sh                # build, sign, install in /Applications (not mid-recording)
 ```
 
-Over SSH the keychain is locked, so builds there are ad-hoc (`APPLE_SIGNING_IDENTITY=-`): they work, but macOS asks
-for the microphone and system-audio permissions again after every rebuild. Permissions on first run: Microphone,
+macOS ties permissions to the app's signature. An ad-hoc signature changes with every build, so Microphone, System
+Audio, Accessibility and Automation would be asked again (or silently fail) after each rebuild; the dev certificate
+keeps them. It lives in a keychain of its own, so signing works over SSH too. Permissions on first run: Microphone,
 System Audio Recording, notifications, and optionally Accessibility (reads the Meet window title, which carries the
 call code; without it the match is by time only). Releases: `scripts/release.sh`.
 
