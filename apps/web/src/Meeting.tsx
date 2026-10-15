@@ -163,9 +163,9 @@ function RecordingView({ rec, onChange }: { rec: Recording; onChange: () => void
     void api.GET("/v1/recordings/{id}/tracks/{kind}/url", { params: { path: { id: rec.id, kind: track } } }).then(({ data }) => data && setSrc(data.url));
   }, [rec.id, track]);
 
-  // Live: segments arrive in batches from index `from`; the final transcript and the audio replace the draft.
+  // Live: segments arrive in batches from index `from`; the final transcript and the audio replace the draft. After
+  // the call too: a voice named in another tab shows up here.
   useEffect(() => {
-    if (!live) return;
     const ctl = new AbortController();
     void api.stream({
       recordingId: rec.id, signal: ctl.signal, onOpen: loadTranscript,
@@ -177,11 +177,15 @@ function RecordingView({ rec, onChange }: { rec: Recording; onChange: () => void
           setMissing(false);
         }
         if (e.type === "participants.updated") setPeople(e.data as Participants);
+        if (e.type === "transcript.speakers") {
+          const { speakers } = e.data as { speakers: Transcript["speakers"] };
+          setT((cur) => cur && { ...cur, speakers });
+        }
         if (e.type === "transcript.final" || e.type === "recording.ended" || e.type === "track.ready") { void loadTranscript(); onChange(); }
       },
     });
     return () => ctl.abort();
-  }, [live, rec.id, loadTranscript, onChange]);
+  }, [rec.id, loadTranscript, onChange]);
 
   useEffect(() => { if (live) bottom.current?.scrollIntoView({ block: "end", behavior: "smooth" }); }, [live, t?.segments.length]);
 
@@ -250,7 +254,7 @@ function InCall({ p }: { p: Participants }) {
   return (
     <p className="in-call muted small">
       {people.map((x, i) => (
-        <span key={x.name}>
+        <span key={i}>
           {i > 0 && ", "}
           <span className={p.visible && x.speaking ? "speaking" : undefined}>{x.self ? `${x.name} (you)` : x.name}</span>
         </span>

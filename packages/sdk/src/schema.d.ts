@@ -241,7 +241,7 @@ export interface paths {
         head?: never;
         /**
          * Name a voice of the transcript, by hand
-         * @description Sets `source: user`; a final transcript delivered again keeps it.
+         * @description Sets `source: user`; a final transcript delivered again keeps it. A label no segment has is not found.
          */
         patch: operations["nameSpeaker"];
         trace?: never;
@@ -481,7 +481,7 @@ export interface components {
             language?: string | null;
             model?: string | null;
             segments: components["schemas"]["Segment"][];
-            /** @description Names for the voices; names set by hand (source user) are kept */
+            /** @description Names for the voices; names set by hand are kept, and entries with source user here are ignored */
             speakers?: components["schemas"]["SpeakerName"][];
         };
         StreamEvent: {

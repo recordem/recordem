@@ -105,7 +105,7 @@ export const FinalTranscript = z.object({
   language: z.string().max(20).nullish(),
   model: z.string().max(80).nullish(),
   segments: z.array(Segment).max(20_000),
-  speakers: z.array(SpeakerName).max(200).optional().openapi({ description: "Names for the voices; names set by hand (source user) are kept" }),
+  speakers: z.array(SpeakerName).max(200).optional().openapi({ description: "Names for the voices; names set by hand are kept, and entries with source user here are ignored" }),
 }).openapi("FinalTranscript");
 
 export const Transcript = z.object({

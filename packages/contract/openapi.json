@@ -680,7 +680,7 @@
               "$ref": "#/components/schemas/SpeakerName"
             },
             "maxItems": 200,
-            "description": "Names for the voices; names set by hand (source user) are kept"
+            "description": "Names for the voices; names set by hand are kept, and entries with source user here are ignored"
           }
         },
         "required": [
@@ -2045,7 +2045,7 @@
           "recordings"
         ],
         "summary": "Name a voice of the transcript, by hand",
-        "description": "Sets `source: user`; a final transcript delivered again keeps it.",
+        "description": "Sets `source: user`; a final transcript delivered again keeps it. A label no segment has is not found.",
         "security": [
           {
             "oauth2": [

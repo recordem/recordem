@@ -89,7 +89,7 @@ export const getTranscript = createRoute({
 
 export const nameSpeaker = createRoute({
   method: "patch", path: "/v1/recordings/{id}/transcript/speakers", operationId: "nameSpeaker", tags: ["recordings"],
-  summary: "Name a voice of the transcript, by hand", description: "Sets `source: user`; a final transcript delivered again keeps it.",
+  summary: "Name a voice of the transcript, by hand", description: "Sets `source: user`; a final transcript delivered again keeps it. A label no segment has is not found.",
   ...needs("meetings:write"),
   request: { params: id, ...body(NameSpeaker) },
   responses: { 200: json(Transcript, "The transcript"), ...errors, ...notFound },

@@ -199,13 +199,17 @@ export function mount(app: OpenAPIHono<Env>, db: Db) {
     const r = await recording(a, c.req.valid("param").id, true);
     const b = c.req.valid("json");
     const segments = [...b.segments].sort((x, y) => x.start_ms - y.start_ms);
-    // A name someone set by hand wins over what the recorder found (a retry, or the same call delivered again).
-    const [prev] = await db.select({ speakers: transcripts.speakers }).from(transcripts).where(eq(transcripts.recordingId, r.id));
-    const byHand = (prev?.speakers ?? []).filter((s) => s.source === "user");
-    const speakers = [...byHand, ...(b.speakers ?? []).filter((s) => !byHand.some((u) => u.label === s.label))];
-    const values = { status: "final" as const, language: b.language ?? null, model: b.model ?? null, segments, speakers, updatedAt: new Date() };
-    const [t] = await db.insert(transcripts).values({ recordingId: r.id, workspaceId: a.workspace, ...values })
-      .onConflictDoUpdate({ target: transcripts.recordingId, set: values }).returning();
+    // A name someone set by hand wins over what the recorder found (a retry, or the same call delivered again). Only
+    // nameSpeaker sets one: the recorder can't claim `user`. Locked, so a rename in between isn't overwritten.
+    const t = await db.transaction(async (tx) => {
+      const [prev] = await tx.select({ speakers: transcripts.speakers }).from(transcripts).where(eq(transcripts.recordingId, r.id)).for("update");
+      const byHand = (prev?.speakers ?? []).filter((s) => s.source === "user");
+      const found = (b.speakers ?? []).filter((s) => s.source !== "user" && !byHand.some((u) => u.label === s.label));
+      const values = { status: "final" as const, language: b.language ?? null, model: b.model ?? null, segments, speakers: [...byHand, ...found], updatedAt: new Date() };
+      const [row] = await tx.insert(transcripts).values({ recordingId: r.id, workspaceId: a.workspace, ...values })
+        .onConflictDoUpdate({ target: transcripts.recordingId, set: values }).returning();
+      return row;
+    });
     const endedAt = new Date(b.ended_at);
     await db.update(recordings).set({ endedAt }).where(eq(recordings.id, r.id));
     await db.update(meetings).set({ endsAt: sql`greatest(${meetings.endsAt}, ${endedAt.toISOString()}::timestamptz)` })
@@ -218,13 +222,18 @@ export function mount(app: OpenAPIHono<Env>, db: Db) {
     const a = c.get("actor");
     const r = await recording(a, c.req.valid("param").id);
     const { label, name } = c.req.valid("json");
-    const [t] = await db.select().from(transcripts).where(eq(transcripts.recordingId, r.id));
-    if (!t) throw notFound("transcript");
-    const speakers: SpeakerName[] = [
-      ...t.speakers.filter((s) => s.label !== label),
-      ...(name ? [{ label, name, source: "user" as const, confidence: null }] : []),
-    ];
-    const [u] = await db.update(transcripts).set({ speakers, updatedAt: new Date() }).where(eq(transcripts.recordingId, r.id)).returning();
+    const u = await db.transaction(async (tx) => {
+      const [t] = await tx.select().from(transcripts).where(eq(transcripts.recordingId, r.id)).for("update");
+      if (!t) throw notFound("transcript");
+      if (!t.segments.some((s) => s.speaker === label)) throw notFound("speaker");
+      const speakers: SpeakerName[] = [
+        ...t.speakers.filter((s) => s.label !== label),
+        ...(name ? [{ label, name, source: "user" as const, confidence: null }] : []),
+      ];
+      const [row] = await tx.update(transcripts).set({ speakers, updatedAt: new Date() }).where(eq(transcripts.recordingId, r.id)).returning();
+      return row;
+    });
+    const { speakers } = u;
     await publish(a.workspace, { type: "transcript.speakers", meeting_id: r.meetingId, recording_id: r.id, data: { speakers } });
     return c.json(transcriptView(u), 200);
   });

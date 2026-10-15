@@ -4,15 +4,15 @@ Goal: name the voices of a call ("system:1" → "Ana Souza") and optionally keep
 bot in the call.
 
 ## Approach
-  
-  - **Who is in the call, who is speaking**: read from the meeting app's Accessibility tree, one profile per app
-    (Meet in Chrome, Zoom, Teams…). No bot joins the call, and the browser is never modified.
-  - **Naming the voices**: diarization turns crossed with who the app showed speaking; an LLM settles the voices the
-    overlap can't, with typed evidence (`self_introduction`, `addressed_and_answers`, `elimination`,
-    `vocative_exclusion`, `platform_attribution`). Only certain names are suggested; the user confirms.
-  - **Video (opt-in)**: ScreenCaptureKit of the meeting window, each participant's tile cropped by its frame.
-  
-  ## Modules
+
+- **Who is in the call, who is speaking**: read from the meeting app's Accessibility tree, one profile per app
+  (Meet in Chrome, Zoom, Teams…). No bot joins the call, and the browser is never modified.
+- **Naming the voices**: diarization turns crossed with who the app showed speaking; an LLM settles the voices the
+  overlap can't, with typed evidence (`self_introduction`, `addressed_and_answers`, `elimination`,
+  `vocative_exclusion`, `platform_attribution`). Only certain names are suggested; the user confirms.
+- **Video (opt-in)**: ScreenCaptureKit of the meeting window, each participant's tile cropped by its frame.
+
+## Modules
 
 Each one has one job, a small data interface, and is testable on Linux except where it touches macOS APIs.
 
