@@ -26,6 +26,10 @@ APP="target/release/bundle/macos/Recordem.app"
 OUT="target/release/dist"
 DMG="$OUT/Recordem-$VERSION.dmg"
 
+# A release runs on any Apple Silicon Mac, so whisper.cpp must not tune for the build machine (-mcpu=native): ggml
+# turns that off when SOURCE_DATE_EPOCH is set. On a CI VM, native also misreads the CPU (i8mm) and fails to build.
+export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git log -1 --format=%ct)}"
+
 echo "→ Recordem $VERSION, signed by: $IDENTITY"
 ../parakeet/build.sh   # the Parakeet engine's helper, bundled next to the app's executable
 APPLE_SIGNING_IDENTITY="$IDENTITY" cargo tauri build --bundles app
