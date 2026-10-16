@@ -5,4 +5,5 @@
 .env.*
 .git
 apps/recorder
+!apps/recorder/crates/scrape/profiles
 apps/web/.cert

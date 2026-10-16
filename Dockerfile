@@ -27,6 +27,7 @@ COPY packages/db/package.json packages/db/
 COPY packages/sdk/package.json packages/sdk/
 COPY apps/auth/package.json apps/auth/
 COPY apps/api/package.json apps/api/
+COPY apps/worker/package.json apps/worker/
 COPY apps/web/package.json apps/web/
 RUN bun install --frozen-lockfile
 COPY packages packages
