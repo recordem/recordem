@@ -67,14 +67,31 @@ export const Match = z.object({
   matched_by: z.enum(["link", "time"]).openapi({ description: "link: same call code; time: a meeting of yours now" }),
 }).openapi("Match");
 
+/** What to capture, chosen by whoever creates the recording (an integrator's backend, not its users); the recorder obeys. */
+export const RecordingConfig = z.object({
+  languages: z.array(z.string().max(8)).max(5).optional().openapi({ description: 'Spoken in the call, e.g. ["pt", "en"]; each turn is transcribed in one of them' }),
+  live: z.boolean().optional().openapi({ description: "Send the transcript while the call goes on (transcript.live); default true" }),
+  tracks: z.array(z.enum(["mix", "mic_hq"])).max(2).optional().openapi({ description: "Audio kept after the call; default the recorder's setting" }),
+  speakers: z.boolean().optional().openapi({ description: "Read who is in the call and who speaks from the call app; default true" }),
+}).openapi("RecordingConfig");
+
 export const CreateRecording = z.object({
-  id: z.string().uuid().openapi({ description: "Chosen by the recorder, so a retry creates nothing new" }),
+  id: z.string().uuid().openapi({ description: "Chosen by the caller, so a retry creates nothing new" }),
   meeting_id: z.string().uuid().nullish().openapi({ description: "From a context match; omitted → a new meeting" }),
   started_at: datetime(),
   url: z.string().max(2000).nullish(),
   app: z.string().max(40).nullish(),
   title: z.string().max(400).nullish(),
+  ref: z.string().max(200).nullish().openapi({ description: "The caller's own id for it (an interview, a ticket…), kept as given" }),
+  metadata: z.record(z.string().max(40), z.string().max(500)).optional().openapi({ description: "Up to 20 key/values kept with the recording" }),
+  config: RecordingConfig.optional(),
+  upload: z.boolean().optional().openapi({ description: "Also return an upload token: for a backend that hands the recording to a desktop app (the Desktop SDK), which then sends it with that token only" }),
 }).openapi("CreateRecording");
+
+export const Upload = z.object({
+  token: z.string().openapi({ description: "Bearer token for this recording only: its live transcript, transcript and audio (scope recordings:upload)" }),
+  expires_at: datetime().openapi({ description: "6 h after it was made; ask again (same id) for a longer call" }),
+}).openapi("Upload");
 
 export const Track = z.object({
   kind: z.enum(["mix", "mic_hq"]), content_type: z.string(), bytes: z.number().int(),
@@ -86,7 +103,14 @@ export const Recording = z.object({
   transcript: z.enum(["none", "live", "final"]),
   tracks: z.array(Track),
   participants: Participants.optional().openapi({ description: "Who the call app showed in the call, last time the recorder read it; absent when it couldn't" }),
+  ref: z.string().nullable().optional().openapi({ description: "The creator's own id for it, as given" }),
+  metadata: z.record(z.string(), z.string()).optional(),
+  config: RecordingConfig.optional().openapi({ description: "What the creator asked to capture" }),
 }).openapi("Recording");
+
+export const CreatedRecording = Recording.extend({
+  upload: Upload.optional().openapi({ description: "When asked for with `upload`" }),
+}).openapi("CreatedRecording");
 
 export const LiveBatch = z.object({
   from: z.number().int().min(0).openapi({ description: "Index of the first segment in this batch" }),
@@ -144,3 +168,17 @@ export const UpdateMeeting = z.object({
 export const MoveRecording = z.object({
   meeting_id: z.string().uuid().nullable().openapi({ description: "Another meeting of the workspace; null → a meeting of its own" }),
 }).openapi("MoveRecording");
+
+export const WebhookEndpoint = z.object({
+  id: z.string().uuid(),
+  url: z.string().url().max(2000).openapi({ description: "https (http only for localhost); receives POSTs of StreamEvent" }),
+  events: z.array(StreamEvent.shape.type).min(1).openapi({ description: "Which event types it gets" }),
+  created_at: datetime(),
+  disabled_at: datetime().nullable().openapi({ description: "Turned off after its deliveries failed for 3 days" }),
+}).openapi("WebhookEndpoint");
+
+export const CreateWebhook = z.object({ url: WebhookEndpoint.shape.url, events: WebhookEndpoint.shape.events }).openapi("CreateWebhook");
+
+export const CreatedWebhook = WebhookEndpoint.extend({
+  secret: z.string().openapi({ description: "Shown once. Each delivery carries Recordem-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of `${t}.${raw body}` with this secret>; reject a t older than 5 minutes" }),
+}).openapi("CreatedWebhook");

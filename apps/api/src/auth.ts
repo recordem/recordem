@@ -1,11 +1,12 @@
 // Access tokens: JWTs issued by the identity provider, verified here against its JWKS. Any OAuth 2.1 server that
 // publishes discovery metadata and puts the workspace in a claim would do; nothing here is better-auth specific.
-import { CLAIMS } from "@recordem/contract";
+import { CLAIMS, UPLOAD_SCOPE } from "@recordem/contract";
 import type { MiddlewareHandler } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 
-export type Actor = { subject: string; workspace: string; scopes: Set<string>; client: string | null };
+/** `recording`: an upload token's one recording (createRecording `upload`); null for every other token. */
+export type Actor = { subject: string; workspace: string; scopes: Set<string>; client: string | null; recording: string | null };
 export type Env = { Variables: { actor: Actor } };
 
 type Verifier = { issuer: string; jwks: ReturnType<typeof createRemoteJWKSet> };
@@ -40,15 +41,22 @@ export function authenticate(opts: { authUrl: string; audience: string }): Middl
       subject: p.sub, workspace,
       scopes: new Set(typeof p.scope === "string" ? p.scope.split(" ") : []),
       client: typeof p.azp === "string" ? p.azp : typeof p.client_id === "string" ? p.client_id : null,
+      recording: typeof p[CLAIMS.recording] === "string" ? (p[CLAIMS.recording] as string) : null,
     });
     await next();
   };
 }
 
-/** Fails unless the token holds every scope the route declares in the contract (`x-scopes`). */
-export function requireScopes(scopes: readonly string[]): MiddlewareHandler<Env> {
+/** Fails unless the token holds every scope the route declares in the contract (`x-scopes`). An upload token holds
+ * none of them: it passes only on a route marked `x-upload`, for the recording in its claim. */
+export function requireScopes(scopes: readonly string[], upload = false): MiddlewareHandler<Env> {
   return async (c, next) => {
-    const missing = scopes.filter((s) => !c.get("actor").scopes.has(s));
+    const a = c.get("actor");
+    if (a.scopes.has(UPLOAD_SCOPE)) {
+      if (!upload || !a.recording || c.req.param("id") !== a.recording) throw fail(403, "insufficient_scope", "an upload token only sends its own recording");
+      return next();
+    }
+    const missing = scopes.filter((s) => !a.scopes.has(s));
     if (missing.length) throw fail(403, "insufficient_scope", `missing scope: ${missing.join(" ")}`);
     await next();
   };

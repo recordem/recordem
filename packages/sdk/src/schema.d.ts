@@ -35,9 +35,30 @@ export interface paths {
         put?: never;
         /**
          * Start a recording
-         * @description Idempotent by `id`. Without `meeting_id`, a meeting is created from the call's link, app and title.
+         * @description Idempotent by `id`. Without `meeting_id`, a meeting is created from the call's link, app and title. With `upload`, also a token for a desktop app to send it (asked again, a fresh one).
          */
         post: operations["createRecording"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/webhooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The workspace's webhook endpoints */
+        get: operations["listWebhooks"];
+        put?: never;
+        /**
+         * Send the workspace's events to a URL
+         * @description The same events as /v1/stream, POSTed one by one, signed, retried with backoff for 3 days.
+         */
+        post: operations["createWebhook"];
         delete?: never;
         options?: never;
         head?: never;
@@ -82,6 +103,23 @@ export interface paths {
          * @description Only who recorded it. Its transcript and audio go with it; a meeting left empty is removed too.
          */
         delete: operations["deleteRecording"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/webhooks/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Stop sending to an endpoint */
+        delete: operations["deleteWebhook"];
         options?: never;
         head?: never;
         patch?: never;
@@ -353,6 +391,36 @@ export interface components {
             /** @description How sure the source is, 0–1; none for user */
             confidence?: number | null;
         };
+        CreatedRecording: components["schemas"]["Recording"] & {
+            upload?: components["schemas"]["Upload"];
+        };
+        Track: {
+            /** @enum {string} */
+            kind: "mix" | "mic_hq";
+            content_type: string;
+            bytes: number;
+        };
+        /** @description What the creator asked to capture */
+        RecordingConfig: {
+            /** @description Spoken in the call, e.g. ["pt", "en"]; each turn is transcribed in one of them */
+            languages?: string[];
+            /** @description Send the transcript while the call goes on (transcript.live); default true */
+            live?: boolean;
+            /** @description Audio kept after the call; default the recorder's setting */
+            tracks?: ("mix" | "mic_hq")[];
+            /** @description Read who is in the call and who speaks from the call app; default true */
+            speakers?: boolean;
+        };
+        /** @description When asked for with `upload` */
+        Upload: {
+            /** @description Bearer token for this recording only: its live transcript, transcript and audio (scope recordings:upload) */
+            token: string;
+            /**
+             * Format: date-time
+             * @description 6 h after it was made; ask again (same id) for a longer call
+             */
+            expires_at: string;
+        };
         Recording: {
             /** Format: uuid */
             id: string;
@@ -367,17 +435,17 @@ export interface components {
             transcript: "none" | "live" | "final";
             tracks: components["schemas"]["Track"][];
             participants?: components["schemas"]["Participants"] & unknown;
-        };
-        Track: {
-            /** @enum {string} */
-            kind: "mix" | "mic_hq";
-            content_type: string;
-            bytes: number;
+            /** @description The creator's own id for it, as given */
+            ref?: string | null;
+            metadata?: {
+                [key: string]: string;
+            };
+            config?: components["schemas"]["RecordingConfig"];
         };
         CreateRecording: {
             /**
              * Format: uuid
-             * @description Chosen by the recorder, so a retry creates nothing new
+             * @description Chosen by the caller, so a retry creates nothing new
              */
             id: string;
             /**
@@ -390,6 +458,46 @@ export interface components {
             url?: string | null;
             app?: string | null;
             title?: string | null;
+            /** @description The caller's own id for it (an interview, a ticket…), kept as given */
+            ref?: string | null;
+            /** @description Up to 20 key/values kept with the recording */
+            metadata?: {
+                [key: string]: string;
+            };
+            config?: components["schemas"]["RecordingConfig"];
+            /** @description Also return an upload token: for a backend that hands the recording to a desktop app (the Desktop SDK), which then sends it with that token only */
+            upload?: boolean;
+        };
+        CreatedWebhook: components["schemas"]["WebhookEndpoint"] & {
+            /** @description Shown once. Each delivery carries Recordem-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of `${t}.${raw body}` with this secret>; reject a t older than 5 minutes */
+            secret: string;
+        };
+        WebhookEndpoint: {
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: uri
+             * @description https (http only for localhost); receives POSTs of StreamEvent
+             */
+            url: string;
+            /** @description Which event types it gets */
+            events: ("recording.created" | "recording.ended" | "recording.stop_requested" | "recording.deleted" | "meeting.deleted" | "transcript.live" | "transcript.final" | "transcript.speakers" | "participants.updated" | "track.ready")[];
+            /** Format: date-time */
+            created_at: string;
+            /**
+             * Format: date-time
+             * @description Turned off after its deliveries failed for 3 days
+             */
+            disabled_at: string | null;
+        };
+        CreateWebhook: {
+            /**
+             * Format: uri
+             * @description https (http only for localhost); receives POSTs of StreamEvent
+             */
+            url: string;
+            /** @description Which event types it gets */
+            events: ("recording.created" | "recording.ended" | "recording.stop_requested" | "recording.deleted" | "meeting.deleted" | "transcript.live" | "transcript.final" | "transcript.speakers" | "participants.updated" | "track.ready")[];
         };
         Me: {
             /** @description The user id, or the client id for a machine token */
@@ -590,7 +698,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Recording"];
+                    "application/json": components["schemas"]["CreatedRecording"];
                 };
             };
             /** @description Missing or invalid token */
@@ -613,6 +721,88 @@ export interface operations {
             };
             /** @description Not found in this workspace */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listWebhooks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The endpoints */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["WebhookEndpoint"][];
+                    };
+                };
+            };
+            /** @description Missing or invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Token lacks a required scope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    createWebhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateWebhook"];
+            };
+        };
+        responses: {
+            /** @description The endpoint, with its signing secret (shown once) */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedWebhook"];
+                };
+            };
+            /** @description Missing or invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Token lacks a required scope */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -832,6 +1022,53 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Deleted, with its transcript and audio */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing or invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Token lacks a required scope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found in this workspace */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteWebhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed */
             204: {
                 headers: {
                     [name: string]: unknown;

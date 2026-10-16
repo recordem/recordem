@@ -16,6 +16,7 @@ export const recordingView = (r: Row<typeof recordings>, ts: Row<typeof tracks>[
   transcript: transcript?.status ?? ("none" as const),
   tracks: ts.map(trackView),
   participants: r.participants ?? undefined,
+  ref: r.ref, metadata: r.metadata, config: r.config ?? undefined,
 });
 
 export const transcriptView = (t: Row<typeof transcripts>) => ({

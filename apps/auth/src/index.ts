@@ -6,6 +6,7 @@ import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import { AUTH_URL, auth, pool } from "./auth";
 import { ensureFirstParty } from "./first-party";
+import { INTERNAL_PORT, internal } from "./internal";
 import { page } from "./page";
 
 const app = new Hono();
@@ -96,6 +97,9 @@ const esc = (s: string) => s.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&
 await ensureFirstParty(pool, { id: "recordem-web", name: "Recordem", type: "web", redirectUris: ORIGINS.map((o) => `${o}/callback`) });
 await ensureFirstParty(pool, { id: "recordem-recorder", name: "Recordem recorder", type: "native", redirectUris: ["recordem://oauth", "recordem-dev://oauth"] });
 
+// The api's own door (upload tokens): another port, so the public route to this server never reaches it.
+Bun.serve({ port: INTERNAL_PORT, hostname: process.env.AUTH_INTERNAL_HOST ?? "127.0.0.1", fetch: internal.fetch });
+
 const port = Number(process.env.AUTH_PORT ?? 39410);
-console.log(`auth on :${port} (issuer ${AUTH_URL})`);
+console.log(`auth on :${port} (issuer ${AUTH_URL}), internal on :${INTERNAL_PORT}`);
 export default { port, hostname: "0.0.0.0", fetch: app.fetch };

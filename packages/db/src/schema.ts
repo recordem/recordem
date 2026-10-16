@@ -27,8 +27,13 @@ export const recordings = pgTable("recordings", {
   endedAt: timestamp("ended_at", { withTimezone: true }),
   stopRequestedAt: timestamp("stop_requested_at", { withTimezone: true }),   // "stop" from the portal, read by the recorder
   participants: jsonb("participants").$type<Participants>(),                 // who the call app showed, last time it was read
+  ref: text("ref"),                                                           // the creator's own id for it, as given
+  metadata: jsonb("metadata").$type<Record<string, string>>().notNull().default({}),
+  config: jsonb("config").$type<RecordingConfig>(),                           // what the creator asked to capture
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [index("recordings_meeting").on(t.meetingId)]);
+}, (t) => [index("recordings_meeting").on(t.meetingId), index("recordings_workspace_ref").on(t.workspaceId, t.ref)]);
+
+export type RecordingConfig = { languages?: string[]; live?: boolean; tracks?: ("mix" | "mic_hq")[]; speakers?: boolean };
 
 export type Segment = {
   start_ms: number; end_ms: number;
@@ -63,3 +68,16 @@ export const tracks = pgTable("tracks", {
   bytes: integer("bytes").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [primaryKey({ columns: [t.recordingId, t.kind] })]);
+
+/** Where a workspace's events are POSTed (apps/worker delivers them). The secret signs each delivery. */
+export const webhooks = pgTable("webhooks", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  workspaceId: text("workspace_id").notNull(),
+  url: text("url").notNull(),
+  events: jsonb("events").$type<string[]>().notNull(),
+  secret: text("secret").notNull(),
+  createdBy: text("created_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  failingSince: timestamp("failing_since", { withTimezone: true }),   // first failed delivery since the last success
+  disabledAt: timestamp("disabled_at", { withTimezone: true }),       // after failing for 3 days
+}, (t) => [index("webhooks_workspace").on(t.workspaceId)]);

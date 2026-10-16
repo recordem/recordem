@@ -1,0 +1,17 @@
+{
+  "name": "@recordem/worker",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@recordem/contract": "workspace:*",
+    "@recordem/db": "workspace:*",
+    "bullmq": "6.3.10",
+    "drizzle-orm": "0.45.3",
+    "ioredis": "6.0.0"
+  }
+}

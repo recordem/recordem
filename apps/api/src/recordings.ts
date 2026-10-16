@@ -10,9 +10,11 @@ import type { Actor, Env } from "./auth";
 import { callKey } from "./callkey";
 import { listen, publish } from "./events";
 import { publicOrigin, storage } from "./storage";
+import { uploadToken } from "./upload";
 import { meetingView, recordingView, trackView, transcriptView } from "./views";
 
 const notFound = (what: string) => new HTTPException(404, { res: Response.json({ error: "not_found", message: `${what} not found` }, { status: 404 }) });
+const badRequest = (message: string) => new HTTPException(400, { res: Response.json({ error: "bad_request", message }, { status: 400 }) });
 const forbidden = (message: string) => new HTTPException(403, { res: Response.json({ error: "forbidden", message }, { status: 403 }) });
 
 const SLACK_MS = 20 * 60_000;            // a call may start a bit early or run over its slot
@@ -75,13 +77,19 @@ export function mount(app: OpenAPIHono<Env>, db: Db) {
     return c.json({ matches: [...byLink.map((m) => match(m, "link")), ...byTime.map((m) => match(m, "time"))] }, 200);
   });
 
+  /** The recording as created, with an upload token when asked (a new one each time: a long call asks again). */
+  async function created(a: Actor, r: typeof recordings.$inferSelect, upload: boolean | undefined) {
+    return { ...(await full(r)), ...(upload ? { upload: await uploadToken({ sub: a.subject, workspace: a.workspace, recording: r.id, client: a.client }) } : {}) };
+  }
+
   app.openapi(routes.createRecording, async (c) => {
     const a = c.get("actor");
     const b = c.req.valid("json");
+    if (Object.keys(b.metadata ?? {}).length > 20) throw badRequest("metadata holds 20 keys at most");
     const [prev] = await db.select().from(recordings).where(eq(recordings.id, b.id));
     if (prev) {
       if (prev.workspaceId !== a.workspace || prev.owner !== a.subject) throw forbidden("this recording id is taken");
-      return c.json(await full(prev), 200);
+      return c.json(await created(a, prev, b.upload), 200);
     }
     let meetingId = b.meeting_id ?? null;
     if (meetingId) {
@@ -96,9 +104,10 @@ export function mount(app: OpenAPIHono<Env>, db: Db) {
     }
     const [r] = await db.insert(recordings).values({
       id: b.id, workspaceId: a.workspace, meetingId, owner: a.subject, client: a.client, startedAt: new Date(b.started_at),
+      ref: b.ref ?? null, metadata: b.metadata ?? {}, config: b.config ?? null,
     }).returning();
     await publish(a.workspace, { type: "recording.created", meeting_id: meetingId, recording_id: r.id, data: {} });
-    return c.json(await full(r), 200);
+    return c.json(await created(a, r, b.upload), 200);
   });
 
   app.openapi(routes.moveRecording, async (c) => {

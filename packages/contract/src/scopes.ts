@@ -11,4 +11,8 @@ export const SCOPES = {
 export type Scope = keyof typeof SCOPES;
 
 /** Claim names Recordem adds to access tokens. */
-export const CLAIMS = { workspace: "workspace" } as const;
+export const CLAIMS = { workspace: "workspace", recording: "recording" } as const;
+
+/** The scope of an upload token: never granted through OAuth, only minted with a recording (createRecording `upload`)
+ * and good for that one recording, on the routes marked `x-upload`. */
+export const UPLOAD_SCOPE = "recordings:upload";

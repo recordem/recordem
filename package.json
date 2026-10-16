@@ -4,7 +4,7 @@
   "type": "module",
   "workspaces": ["apps/*", "packages/*"],
   "scripts": {
-    "dev": "bun --filter '@recordem/auth' --filter '@recordem/api' --filter '@recordem/web' dev",
+    "dev": "bun --filter '@recordem/auth' --filter '@recordem/api' --filter '@recordem/worker' --filter '@recordem/web' dev",
     "db:generate": "bun --filter @recordem/db db:generate",
     "db:migrate": "bun --filter @recordem/db db:migrate && bun --filter @recordem/auth db:migrate",
     "openapi": "bun --filter @recordem/contract openapi",

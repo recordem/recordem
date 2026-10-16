@@ -7,6 +7,7 @@ import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import { authenticate, requireScopes, type Env } from "./auth";
 import { mount } from "./recordings";
+import { mountWebhooks } from "./webhooks";
 import { files } from "./storage";
 import { meetingView } from "./views";
 
@@ -27,7 +28,7 @@ app.get("/files/*", (c) => files(c.req.raw));
 app.get("/v1/openapi.json", (c) => c.json(document(AUTH_URL, API_URL)));
 app.use("/v1/*", async (c, next) => (c.req.path === "/v1/openapi.json" ? next() : authenticate({ authUrl: AUTH_URL, audience: API_URL })(c, next)));
 // Each route requires the scopes the contract declares for it (per method: GET and PUT of a track differ).
-for (const r of Object.values(routes)) app.on(r.method.toUpperCase(), r.path.replace(/{(\w+)}/g, ":$1"), requireScopes(r["x-scopes"]));
+for (const r of Object.values(routes)) app.on(r.method.toUpperCase(), r.path.replace(/{(\w+)}/g, ":$1"), requireScopes(r["x-scopes"], r["x-upload"]));
 
 app.openapi(routes.getMe, (c) => {
   const a = c.get("actor");
@@ -54,6 +55,7 @@ app.openapi(routes.listMeetings, async (c) => {
 });
 
 mount(app, db);
+mountWebhooks(app, db);
 
 app.onError((e, c) => (e instanceof HTTPException ? e.getResponse() : (console.error(e), c.json({ error: "server_error", message: "unexpected error" }, 500))));
 

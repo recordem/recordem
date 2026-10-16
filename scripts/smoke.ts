@@ -27,7 +27,7 @@ step("register public client", reg.ok, reg.ok ? client.client_id : client);
 const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
 const challenge = b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
 const q = new URLSearchParams({ response_type: "code", client_id: client.client_id, redirect_uri: REDIRECT, state: "s1",
-  scope: "openid profile offline_access meetings:read meetings:write transcripts:read audio:read", code_challenge: challenge, code_challenge_method: "S256", resource: API });
+  scope: "openid profile offline_access meetings:read meetings:write transcripts:read audio:read webhooks:manage", code_challenge: challenge, code_challenge_method: "S256", resource: API });
 let res = await go(`${AUTH}/api/auth/oauth2/authorize?${q}`);
 let loc = res.headers.get("location") ?? "";
 step("authorize redirects to sign-in", loc.includes("/sign-in"), loc.slice(0, 80));
@@ -115,11 +115,12 @@ r = await call("PUT", `/v1/recordings/${recId}/transcript`, { ended_at: new Date
 const fin = await r.json() as { status: string; segments: { text: string }[]; speakers: { label: string; name: string; source: string }[] };
 step("final transcript replaces the draft, sorted", fin.status === "final" && fin.segments[0].text === "Hi", fin.segments.map((x) => x.text));
 step("voices named", fin.speakers.length === 2 && fin.speakers[0].name === "Ana Souza", fin.speakers);
-r = await call("PATCH", `/v1/recordings/${recId}/transcript/speakers`, { label: "system:2", name: "Carla Mendes" });
-r = await call("PUT", `/v1/recordings/${recId}/transcript`, { ended_at: new Date().toISOString(), segments: [seg(0, "mic", "Hi")],
-  speakers: [{ label: "system:2", name: "Carla Dias", source: "platform" }] });
+r = await call("PATCH", `/v1/recordings/${recId}/transcript/speakers`, { label: "system:1", name: "Ana Mendes" });
+step("name a voice by hand", r.ok);
+r = await call("PUT", `/v1/recordings/${recId}/transcript`, { ended_at: new Date().toISOString(), segments: [seg(0, "mic", "Hi"), seg(1, "system", "Hello there")],
+  speakers: [{ label: "system:1", name: "Ana Souza", source: "platform" }] });
 const again = (await r.json()) as typeof fin;
-step("a name set by hand survives the transcript delivered again", again.speakers.find((x) => x.label === "system:2")?.name === "Carla Mendes", again.speakers);
+step("a name set by hand survives the transcript delivered again", again.speakers.find((x) => x.label === "system:1")?.name === "Ana Mendes", again.speakers);
 r = await call("PUT", `/v1/recordings/${recId}/transcript`, { ended_at: new Date().toISOString(), language: "en", model: "whisper large-v3-turbo",
   segments: [seg(1, "system", "Hello there"), seg(0, "mic", "Hi")] });
 
@@ -189,3 +190,43 @@ r = await call("DELETE", `/v1/meetings/${rec.meeting_id}`);
 step("delete the meeting", r.status === 204);
 step("its recording is gone", (await call("GET", `/v1/recordings/${recId}`)).status === 404);
 step("its audio link no longer serves", (await fetch(tu.url)).status === 404);
+
+// 10. the Desktop SDK flow: a backend creates the recording with an upload token and a webhook; a desktop app sends
+// that recording with the token alone, which opens nothing else; the webhook arrives signed.
+const got: { body: string; sig: string }[] = [];
+const hookServer = Bun.serve({ port: 39498, hostname: "127.0.0.1", fetch: async (req) => {
+  got.push({ body: await req.text(), sig: req.headers.get("recordem-signature") ?? "" });
+  return new Response("ok");
+} });
+r = await call("POST", "/v1/webhooks", { url: "http://127.0.0.1:39498/hook", events: ["recording.created", "transcript.live"] });
+const hook = await r.json() as { id: string; secret: string };
+step("create a webhook (secret shown once)", r.status === 201 && hook.secret.startsWith("whsec_"));
+step("list webhooks hides the secret", !JSON.stringify(await (await call("GET", "/v1/webhooks")).json()).includes(hook.secret));
+
+const sdkRec = crypto.randomUUID();
+r = await call("POST", "/v1/recordings", { id: sdkRec, started_at: new Date().toISOString(), title: "Interview", ref: "interview-42",
+  metadata: { candidate: "c-7" }, config: { languages: ["pt", "en"], live: true }, upload: true });
+const made = await r.json() as { ref: string; metadata: Record<string, string>; config: { languages: string[] }; upload: { token: string; expires_at: string } };
+step("create with ref, metadata, config and an upload token", r.ok && made.ref === "interview-42" && made.metadata.candidate === "c-7" && !!made.upload?.token, { ref: made.ref, expires_at: made.upload?.expires_at });
+const up = { authorization: `Bearer ${made.upload.token}`, "content-type": "application/json" };
+r = await fetch(`${API}/v1/recordings/${sdkRec}/live`, { method: "POST", headers: up, body: JSON.stringify({ from: 0, segments: [{ start_ms: 0, end_ms: 900, channel: "mic", speaker: "mic", text: "Olá" }] }) });
+step("upload token sends its recording", r.ok, await r.json());
+step("upload token reads nothing", (await fetch(`${API}/v1/recordings/${sdkRec}`, { headers: up })).status === 403);
+const otherRec = crypto.randomUUID();
+await call("POST", "/v1/recordings", { id: otherRec, started_at: new Date().toISOString() });
+step("upload token sends no other recording", (await fetch(`${API}/v1/recordings/${otherRec}/live`, { method: "POST", headers: up, body: JSON.stringify({ from: 0, segments: [] }) })).status === 403);
+step("upload token creates nothing", (await fetch(`${API}/v1/recordings`, { method: "POST", headers: up, body: JSON.stringify({ id: crypto.randomUUID(), started_at: new Date().toISOString() }) })).status === 403);
+
+for (let i = 0; i < 50 && got.length < 2; i++) await Bun.sleep(100);
+const verify = (g: { body: string; sig: string }) => {
+  const [, t, v1] = g.sig.match(/^t=(\d+),v1=([0-9a-f]+)$/) ?? [];
+  return !!t && new Bun.CryptoHasher("sha256", hook.secret).update(`${t}.${g.body}`).digest("hex") === v1;
+};
+const types = got.map((g) => (JSON.parse(g.body) as { type: string; recording_id: string }));
+step("webhook: recording.created and transcript.live arrive, signed", got.length >= 2 && got.every(verify)
+  && types.some((e) => e.type === "recording.created" && e.recording_id === sdkRec) && types.some((e) => e.type === "transcript.live"), types.map((e) => e.type));
+r = await call("DELETE", `/v1/webhooks/${hook.id}`);
+step("delete the webhook", r.status === 204);
+await call("DELETE", `/v1/recordings/${sdkRec}`);
+await call("DELETE", `/v1/recordings/${otherRec}`);
+hookServer.stop();

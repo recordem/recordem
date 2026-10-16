@@ -253,6 +253,98 @@
           "source"
         ]
       },
+      "CreatedRecording": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Recording"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "upload": {
+                "$ref": "#/components/schemas/Upload"
+              }
+            }
+          }
+        ]
+      },
+      "Track": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "mix",
+              "mic_hq"
+            ]
+          },
+          "content_type": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "content_type",
+          "bytes"
+        ]
+      },
+      "RecordingConfig": {
+        "type": "object",
+        "properties": {
+          "languages": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 8
+            },
+            "maxItems": 5,
+            "description": "Spoken in the call, e.g. [\"pt\", \"en\"]; each turn is transcribed in one of them"
+          },
+          "live": {
+            "type": "boolean",
+            "description": "Send the transcript while the call goes on (transcript.live); default true"
+          },
+          "tracks": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "mix",
+                "mic_hq"
+              ]
+            },
+            "maxItems": 2,
+            "description": "Audio kept after the call; default the recorder's setting"
+          },
+          "speakers": {
+            "type": "boolean",
+            "description": "Read who is in the call and who speaks from the call app; default true"
+          }
+        },
+        "description": "What the creator asked to capture"
+      },
+      "Upload": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "Bearer token for this recording only: its live transcript, transcript and audio (scope recordings:upload)"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "6 h after it was made; ask again (same id) for a longer call"
+          }
+        },
+        "required": [
+          "token",
+          "expires_at"
+        ],
+        "description": "When asked for with `upload`"
+      },
       "Recording": {
         "type": "object",
         "properties": {
@@ -301,6 +393,22 @@
                 "description": "Who the call app showed in the call, last time the recorder read it; absent when it couldn't"
               }
             ]
+          },
+          "ref": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The creator's own id for it, as given"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "config": {
+            "$ref": "#/components/schemas/RecordingConfig"
           }
         },
         "required": [
@@ -313,36 +421,13 @@
           "tracks"
         ]
       },
-      "Track": {
-        "type": "object",
-        "properties": {
-          "kind": {
-            "type": "string",
-            "enum": [
-              "mix",
-              "mic_hq"
-            ]
-          },
-          "content_type": {
-            "type": "string"
-          },
-          "bytes": {
-            "type": "integer"
-          }
-        },
-        "required": [
-          "kind",
-          "content_type",
-          "bytes"
-        ]
-      },
       "CreateRecording": {
         "type": "object",
         "properties": {
           "id": {
             "type": "string",
             "format": "uuid",
-            "description": "Chosen by the recorder, so a retry creates nothing new"
+            "description": "Chosen by the caller, so a retry creates nothing new"
           },
           "meeting_id": {
             "type": [
@@ -376,11 +461,142 @@
               "null"
             ],
             "maxLength": 400
+          },
+          "ref": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200,
+            "description": "The caller's own id for it (an interview, a ticket…), kept as given"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 500
+            },
+            "description": "Up to 20 key/values kept with the recording"
+          },
+          "config": {
+            "$ref": "#/components/schemas/RecordingConfig"
+          },
+          "upload": {
+            "type": "boolean",
+            "description": "Also return an upload token: for a backend that hands the recording to a desktop app (the Desktop SDK), which then sends it with that token only"
           }
         },
         "required": [
           "id",
           "started_at"
+        ]
+      },
+      "CreatedWebhook": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/WebhookEndpoint"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "secret": {
+                "type": "string",
+                "description": "Shown once. Each delivery carries Recordem-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of `${t}.${raw body}` with this secret>; reject a t older than 5 minutes"
+              }
+            },
+            "required": [
+              "secret"
+            ]
+          }
+        ]
+      },
+      "WebhookEndpoint": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 2000,
+            "format": "uri",
+            "description": "https (http only for localhost); receives POSTs of StreamEvent"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "recording.created",
+                "recording.ended",
+                "recording.stop_requested",
+                "recording.deleted",
+                "meeting.deleted",
+                "transcript.live",
+                "transcript.final",
+                "transcript.speakers",
+                "participants.updated",
+                "track.ready"
+              ]
+            },
+            "minItems": 1,
+            "description": "Which event types it gets"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "disabled_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Turned off after its deliveries failed for 3 days"
+          }
+        },
+        "required": [
+          "id",
+          "url",
+          "events",
+          "created_at",
+          "disabled_at"
+        ]
+      },
+      "CreateWebhook": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "maxLength": 2000,
+            "format": "uri",
+            "description": "https (http only for localhost); receives POSTs of StreamEvent"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "recording.created",
+                "recording.ended",
+                "recording.stop_requested",
+                "recording.deleted",
+                "meeting.deleted",
+                "transcript.live",
+                "transcript.final",
+                "transcript.speakers",
+                "participants.updated",
+                "track.ready"
+              ]
+            },
+            "minItems": 1,
+            "description": "Which event types it gets"
+          }
+        },
+        "required": [
+          "url",
+          "events"
         ]
       },
       "Me": {
@@ -784,6 +1000,7 @@
         "x-scopes": [
           "meetings:write"
         ],
+        "x-upload": true,
         "parameters": [
           {
             "schema": {
@@ -856,7 +1073,7 @@
           "recorder"
         ],
         "summary": "Start a recording",
-        "description": "Idempotent by `id`. Without `meeting_id`, a meeting is created from the call's link, app and title.",
+        "description": "Idempotent by `id`. Without `meeting_id`, a meeting is created from the call's link, app and title. With `upload`, also a token for a desktop app to send it (asked again, a fresh one).",
         "security": [
           {
             "oauth2": [
@@ -867,6 +1084,7 @@
         "x-scopes": [
           "meetings:write"
         ],
+        "x-upload": false,
         "requestBody": {
           "required": true,
           "content": {
@@ -883,7 +1101,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Recording"
+                  "$ref": "#/components/schemas/CreatedRecording"
                 }
               }
             }
@@ -921,6 +1139,130 @@
         }
       }
     },
+    "/v1/webhooks": {
+      "post": {
+        "operationId": "createWebhook",
+        "tags": [
+          "webhooks"
+        ],
+        "summary": "Send the workspace's events to a URL",
+        "description": "The same events as /v1/stream, POSTed one by one, signed, retried with backoff for 3 days.",
+        "security": [
+          {
+            "oauth2": [
+              "webhooks:manage"
+            ]
+          }
+        ],
+        "x-scopes": [
+          "webhooks:manage"
+        ],
+        "x-upload": false,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWebhook"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The endpoint, with its signing secret (shown once)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedWebhook"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token lacks a required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "listWebhooks",
+        "tags": [
+          "webhooks"
+        ],
+        "summary": "The workspace's webhook endpoints",
+        "security": [
+          {
+            "oauth2": [
+              "webhooks:manage"
+            ]
+          }
+        ],
+        "x-scopes": [
+          "webhooks:manage"
+        ],
+        "x-upload": false,
+        "responses": {
+          "200": {
+            "description": "The endpoints",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/WebhookEndpoint"
+                      }
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token lacks a required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/meetings/{id}": {
       "delete": {
         "operationId": "deleteMeeting",
@@ -939,6 +1281,7 @@
         "x-scopes": [
           "meetings:write"
         ],
+        "x-upload": false,
         "parameters": [
           {
             "schema": {
@@ -1002,6 +1345,7 @@
         "x-scopes": [
           "meetings:read"
         ],
+        "x-upload": false,
         "parameters": [
           {
             "schema": {
@@ -1072,6 +1416,7 @@
         "x-scopes": [
           "meetings:write"
         ],
+        "x-upload": false,
         "parameters": [
           {
             "schema": {
@@ -1155,6 +1500,7 @@
         "x-scopes": [
           "meetings:write"
         ],
+        "x-upload": false,
         "parameters": [
           {
             "schema": {
@@ -1218,6 +1564,7 @@
         "x-scopes": [
           "meetings:read"
         ],
+        "x-upload": false,
         "parameters": [
           {
             "schema": {
@@ -1273,6 +1620,72 @@
         }
       }
     },
+    "/v1/webhooks/{id}": {
+      "delete": {
+        "operationId": "deleteWebhook",
+        "tags": [
+          "webhooks"
+        ],
+        "summary": "Stop sending to an endpoint",
+        "security": [
+          {
+            "oauth2": [
+              "webhooks:manage"
+            ]
+          }
+        ],
+        "x-scopes": [
+          "webhooks:manage"
+        ],
+        "x-upload": false,
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Removed"
+          },
+          "401": {
+            "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token lacks a required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found in this workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/me": {
       "get": {
         "operationId": "getMe",
@@ -1286,6 +1699,7 @@
           }
         ],
         "x-scopes": [],
+        "x-upload": false,
         "responses": {
           "200": {
             "description": "The token's subject, workspace and scopes",
@@ -1338,6 +1752,7 @@
         "x-scopes": [
           "audio:read"
         ],
+        "x-upload": false,
         "parameters": [
           {
             "schema": {
@@ -1437,6 +1852,7 @@
         "x-scopes": [
           "meetings:write"
         ],
+        "x-upload": true,
         "parameters": [
           {
             "schema": {
@@ -1555,6 +1971,7 @@
         "x-scopes": [
           "audio:read"
         ],
+        "x-upload": false,
         "parameters": [
           {
             "schema": {
@@ -1639,6 +2056,7 @@
         "x-scopes": [
           "transcripts:read"
         ],
+        "x-upload": false,
         "parameters": [
           {
             "schema": {
@@ -1710,6 +2128,7 @@
         "x-scopes": [
           "meetings:write"
         ],
+        "x-upload": true,
         "parameters": [
           {
             "schema": {
@@ -1792,6 +2211,7 @@
         "x-scopes": [
           "meetings:read"
         ],
+        "x-upload": false,
         "parameters": [
           {
             "schema": {
@@ -1908,6 +2328,7 @@
         "x-scopes": [
           "meetings:read"
         ],
+        "x-upload": false,
         "requestBody": {
           "required": true,
           "content": {
@@ -1981,6 +2402,7 @@
         "x-scopes": [
           "meetings:write"
         ],
+        "x-upload": false,
         "parameters": [
           {
             "schema": {
@@ -2064,6 +2486,7 @@
         "x-scopes": [
           "meetings:write"
         ],
+        "x-upload": false,
         "parameters": [
           {
             "schema": {
@@ -2147,6 +2570,7 @@
         "x-scopes": [
           "meetings:write"
         ],
+        "x-upload": false,
         "parameters": [
           {
             "schema": {
@@ -2220,6 +2644,7 @@
         "x-scopes": [
           "meetings:read"
         ],
+        "x-upload": false,
         "parameters": [
           {
             "schema": {

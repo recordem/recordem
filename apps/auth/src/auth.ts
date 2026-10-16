@@ -13,7 +13,7 @@ export const API_URL = env("API_URL", "http://localhost:39411");
 
 // The issuer the OAuth metadata announces is https for any non-loopback host (even on a plain-http dev box), so the
 // JWTs are signed with that same value; it is an identifier, never fetched.
-const ISSUER = (() => {
+export const ISSUER = (() => {
   const u = new URL(`${AUTH_URL}/api/auth`);
   if (!["localhost", "127.0.0.1", "[::1]"].includes(u.hostname)) u.protocol = "https:";
   return u.toString();

@@ -1,5 +1,8 @@
 // Realtime: every change worth showing live is published on the workspace's Redis channel; each API process keeps
-// one subscriber per workspace that has listeners and fans the events out to its SSE connections.
+// one subscriber per workspace that has listeners and fans the events out to its SSE connections. Each event also
+// goes on the `events` queue, where apps/worker sends it to the workspace's webhook endpoints.
+import { Queue } from "bullmq";
+import IORedis from "ioredis";
 import { RedisClient } from "bun";
 
 export type StreamEvent = {
@@ -13,10 +16,12 @@ const pub = new RedisClient(url);
 const sub = new RedisClient(url);
 const listeners = new Map<string, Set<Listener>>();
 const channel = (workspace: string) => `recordem:ws:${workspace}`;
+const queue = new Queue("events", { connection: new IORedis(url, { maxRetriesPerRequest: null }) });
 
 export async function publish(workspace: string, e: Omit<StreamEvent, "id" | "at">) {
   const event: StreamEvent = { id: crypto.randomUUID(), at: new Date().toISOString(), ...e };
   await pub.publish(channel(workspace), JSON.stringify(event)).catch((err) => console.error("publish:", err));
+  await queue.add("event", { workspace, event }, { removeOnComplete: 1000, removeOnFail: 5000 }).catch((err) => console.error("queue:", err));
 }
 
 /** Listens to a workspace's events; returns the function that stops listening. */
