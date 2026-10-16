@@ -2,7 +2,11 @@
   "name": "recordem",
   "private": true,
   "type": "module",
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "tests/*"
+  ],
   "scripts": {
     "dev": "bun --filter '@recordem/auth' --filter '@recordem/api' --filter '@recordem/worker' --filter '@recordem/web' dev",
     "db:generate": "bun --filter @recordem/db db:generate",
