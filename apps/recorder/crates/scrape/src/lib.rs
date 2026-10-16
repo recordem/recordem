@@ -6,9 +6,9 @@ mod profile;
 mod selector;
 
 pub use health::{Event, Health, Issue, Monitor, MonitorOptions, Status};
-pub use profile::{Field, MicPlace, Participant, Profile, Roster, RosterEntry, Scrape, SelfMic, Versions, compare_versions};
+pub use profile::{Field, Label, MicPlace, Participant, Profile, Roster, RosterEntry, Scrape, SelfMic, Text, Versions, compare_versions};
 pub use regex::Regex;
-pub use selector::Selector;
+pub use selector::{Selector, TextHow};
 
 use serde::Deserialize;
 
@@ -38,7 +38,12 @@ impl Profiles {
     pub fn merge(&mut self, json: &str) -> anyhow::Result<usize> {
         let doc: Document = serde_json::from_str(json)?;
         let mut changed = 0;
-        for p in doc.profiles {
+        for mut p in doc.profiles {
+            // A profile naming texts it lacks would read nothing where they are used: the built-in one stays.
+            if let Err(e) = p.check() {
+                eprintln!("{e}");
+                continue;
+            }
             match self.0.iter_mut().find(|q| q.id == p.id && same_range(q, &p)) {
                 Some(q) if q.revision >= p.revision => {}
                 Some(q) => {

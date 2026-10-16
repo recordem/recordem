@@ -172,3 +172,53 @@ fn call_window_on_another_space() {
     assert_eq!(s.title.as_deref(), Some("abc-defg-hij"));
     assert_eq!(s.health.issues, [recordem_scrape::Issue::NotVisible]);
 }
+
+// Three people (one on a phone), Oct 2026, roster closed: who speaks, which tile is the person on this Mac (only it
+// has "Planos de fundo e efeitos"), and the others' mics (their tiles' mic control), all from labels, not classes.
+fn three(fixture: &str) -> recordem_scrape::Scrape {
+    meet().scrape(&load(fixture)).expect("a call")
+}
+
+#[test]
+fn three_people_who_speaks() {
+    for (fixture, speaker) in [("bruno-speaking-3", "Bruno Lima"), ("ana-speaking-3", "Ana Souza"), ("carla-speaking-3", "Carla Dias")] {
+        let s = three(fixture);
+        let speaking: Vec<&str> = s.participants.iter().filter(|p| p.speaking).map(|p| p.name.as_str()).collect();
+        assert_eq!(speaking, [speaker], "{fixture}");
+        assert_eq!(s.participants.len(), 3, "{fixture}");
+    }
+}
+
+#[test]
+fn three_people_self_from_its_tile() {
+    for fixture in ["bruno-speaking-3", "ana-speaking-3", "carla-speaking-3"] {
+        let s = three(fixture);
+        assert_eq!(s.self_name.as_deref(), Some("Bruno Lima"), "{fixture}: no roster open, still known");
+        let mine: Vec<&str> = s.participants.iter().filter(|p| p.is_self).map(|p| p.name.as_str()).collect();
+        assert_eq!(mine, ["Bruno Lima"], "{fixture}");
+    }
+}
+
+#[test]
+fn three_people_their_mics() {
+    for fixture in ["bruno-speaking-3", "ana-speaking-3", "carla-speaking-3"] {
+        let s = three(fixture);
+        for p in s.participants.iter().filter(|p| !p.is_self) {
+            assert!(p.muted.is_some(), "{fixture}: {}'s mic is read from their tile", p.name);
+        }
+    }
+}
+
+/// With Meet's name class gone, the "Mais opções para <name>" button still names every tile.
+#[test]
+fn names_without_the_name_class() {
+    let mut tree = load("ana-speaking-3");
+    fn strip(n: &mut AxNode) {
+        n.dom_classes.retain(|c| c != "XEazBc");
+        n.children.iter_mut().for_each(strip);
+    }
+    strip(&mut tree);
+    let mut names: Vec<String> = meet().scrape(&tree).expect("a call").participants.into_iter().map(|p| p.name).collect();
+    names.sort();
+    assert_eq!(names, ["Ana Souza", "Bruno Lima", "Carla Dias"]);
+}

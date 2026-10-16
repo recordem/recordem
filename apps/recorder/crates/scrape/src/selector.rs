@@ -7,6 +7,9 @@
 //   ["has", "title"]                       attribute present and not blank
 //   ["and", s1, s2, …]  ["or", s1, s2, …]  ["not", s]
 //   ["one_of", "role_description", ["Video render", "Rendu vidéo", …]]   attribute equals one of (translations)
+//   ["is", "role_description", "@video_render"]     equals one of the profile's texts named video_render (every
+//   ["starts", "description", "@mic_on"]            language: the app's own translations where it has them, see
+//   ["has_text", "value", "@talking"]               Profile::texts); starts with / contains one, ignoring case
 //   ["child", s]                           some direct child matches s
 //   ["descendant", s]                      some element below matches s
 //   ["count", s, min, max]                 between min and max elements below match s (structure, not names)
@@ -17,6 +20,7 @@ use recordem_ax::AxNode;
 use regex::Regex;
 use serde::{Deserialize, Deserializer, de::Error};
 use serde_json::Value;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub enum Selector {
@@ -34,6 +38,29 @@ pub enum Selector {
     Count(Box<Selector>, usize, usize),
     MinSize(f64, f64),
     MaxSize(f64, f64),
+    /// Compared with one of the profile's texts (by name); `values` are filled in by `bind`.
+    Text { attr: String, how: TextHow, name: String, values: Vec<String> },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TextHow {
+    Is,
+    Starts,
+    Contains,
+}
+
+impl TextHow {
+    pub fn test(self, s: &str, values: &[String]) -> bool {
+        let s = s.trim().to_lowercase();
+        values.iter().any(|v| {
+            let v = v.to_lowercase();
+            match self {
+                TextHow::Is => s == v,
+                TextHow::Starts => s.starts_with(&v),
+                TextHow::Contains => s.contains(&v),
+            }
+        })
+    }
 }
 
 impl Selector {
@@ -56,6 +83,27 @@ impl Selector {
             }
             Selector::MinSize(w, h) => node.frame.is_some_and(|f| f.w >= *w && f.h >= *h),
             Selector::MaxSize(w, h) => node.frame.is_some_and(|f| f.w <= *w && f.h <= *h),
+            Selector::Text { attr, how, values, .. } => node.attr(attr).is_some_and(|s| how.test(s, values)),
+        }
+    }
+
+    /// Fills in the texts this selector names (`@name`), from `texts`; a name it doesn't have matches nothing.
+    pub fn bind(&mut self, texts: &HashMap<String, Vec<String>>) {
+        match self {
+            Selector::Text { name, values, .. } => *values = texts.get(name).cloned().unwrap_or_default(),
+            Selector::And(all) | Selector::Or(all) => all.iter_mut().for_each(|s| s.bind(texts)),
+            Selector::Not(s) | Selector::Child(s) | Selector::Descendant(s) | Selector::Count(s, _, _) => s.bind(texts),
+            _ => {}
+        }
+    }
+
+    /// The text names this selector uses.
+    pub fn text_names(&self, out: &mut Vec<String>) {
+        match self {
+            Selector::Text { name, .. } => out.push(name.clone()),
+            Selector::And(all) | Selector::Or(all) => all.iter().for_each(|s| s.text_names(out)),
+            Selector::Not(s) | Selector::Child(s) | Selector::Descendant(s) | Selector::Count(s, _, _) => s.text_names(out),
+            _ => {}
         }
     }
 
@@ -119,6 +167,12 @@ impl Selector {
             "count" => Selector::Count(one()?, num(2)? as usize, num(3)? as usize),
             "min_size" => Selector::MinSize(num(1)?, num(2)?),
             "max_size" => Selector::MaxSize(num(1)?, num(2)?),
+            "is" | "starts" | "has_text" => {
+                let name = s(2)?;
+                let name = name.strip_prefix('@').ok_or_else(|| format!("{op}: argument 2 names a text, \"@name\""))?.to_string();
+                let how = match op { "is" => TextHow::Is, "starts" => TextHow::Starts, _ => TextHow::Contains };
+                Selector::Text { attr: s(1)?, how, name, values: Vec::new() }
+            }
             _ => return Err(format!("unknown selector operator {op:?}")),
         })
     }

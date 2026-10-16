@@ -17,9 +17,6 @@ pub struct Field {
     pub regex: Option<Regex>,
 }
 
-fn regex_req<'de, D: Deserializer<'de>>(d: D) -> Result<Regex, D::Error> {
-    Regex::new(&String::deserialize(d)?).map_err(serde::de::Error::custom)
-}
 
 fn regex_list<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Regex>, D::Error> {
     Vec::<String>::deserialize(d)?.iter().map(|s| Regex::new(s).map_err(serde::de::Error::custom)).collect()
@@ -31,11 +28,60 @@ pub struct SelfMic {
     /// Where it is: a button in the call's window (Meet), or an item of the app's menus (Zoom's "Meeting" menu).
     #[serde(rename = "in", default)]
     pub place: MicPlace,
-    /// Its label while the mic is muted ("Turn on microphone"), and while it is open ("Turn off microphone").
-    #[serde(deserialize_with = "regex_req")]
-    pub muted: Regex,
-    #[serde(deserialize_with = "regex_req")]
-    pub open: Regex,
+    /// Its label while the mic is muted ("Turn on microphone"), and while it is open ("Turn off microphone"): a regex,
+    /// or "@name", one of the profile's texts (the label starts with it, any language).
+    pub muted: Label,
+    pub open: Label,
+}
+
+#[derive(Debug, Clone)]
+pub enum Label {
+    Regex(Regex),
+    Text(String, Vec<String>),
+}
+
+impl Label {
+    pub fn is_match(&self, s: &str) -> bool {
+        match self {
+            Label::Regex(re) => re.is_match(s),
+            Label::Text(_, values) => crate::selector::TextHow::Starts.test(s, values),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Label {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        Ok(match s.strip_prefix('@') {
+            Some(name) => Label::Text(name.to_string(), Vec::new()),
+            None => Label::Regex(Regex::new(&s).map_err(serde::de::Error::custom)?),
+        })
+    }
+}
+
+/// A text a profile compares with, in every language: the app's own translations of `app_key` where the app has a
+/// table of them (Zoom's Localizable.strings: "LN_Accessibility_Video_Render_194601" → "Video render", "Rendu
+/// vidéo"…), plus `values` (a web app has no table to read: its translations are listed). Written as a plain list
+/// when it has no key.
+#[derive(Debug, Clone, Default)]
+pub struct Text {
+    pub app_key: Option<String>,
+    pub values: Vec<String>,
+}
+
+impl<'de> Deserialize<'de> for Text {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            List(Vec<String>),
+            Keyed { app_key: Option<String>, #[serde(default)] values: Vec<String> },
+        }
+        Ok(match Raw::deserialize(d)? {
+            Raw::List(values) => Text { app_key: None, values },
+            Raw::Keyed { app_key, values } => Text { app_key, values },
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Deserialize)]
@@ -202,6 +248,13 @@ pub struct Profile {
     pub links: Vec<Regex>,
     #[serde(default)]
     pub self_mic: Option<SelfMic>,
+    /// The tile of the person on this Mac: the only one that matches (Meet's lacks the controls a tile of someone
+    /// else has, like "You can't unmute someone else"). Tells them apart with no roster open and no account name.
+    #[serde(default)]
+    pub self_tile: Option<Selector>,
+    /// The texts its selectors name ("@video_render"), in every language.
+    #[serde(default)]
+    pub texts: HashMap<String, Text>,
 }
 
 fn deep() -> usize {
@@ -218,6 +271,9 @@ pub struct Participant {
     /// says so) but not on screen.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub frame: Option<Rect>,
+    /// The tile `self_tile` says is the person on this Mac.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub is_self: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -257,8 +313,98 @@ pub struct Scrape {
 }
 
 impl Profile {
+    /// Fills in the texts its selectors name: each text's own values, plus `app(key)` for a text with an app key (the
+    /// installed app's translations; empty when unknown). Names no text defines are returned (a profile error).
+    pub fn bind(&mut self, app: &dyn Fn(&str) -> Vec<String>) -> Vec<String> {
+        let texts: HashMap<String, Vec<String>> = self
+            .texts
+            .iter()
+            .map(|(name, t)| {
+                let mut v = t.values.clone();
+                if let Some(k) = &t.app_key {
+                    for x in app(k) {
+                        if !v.contains(&x) {
+                            v.push(x);
+                        }
+                    }
+                }
+                (name.clone(), v)
+            })
+            .collect();
+        let mut missing = Vec::new();
+        self.each_selector(&mut |s| {
+            let mut names = Vec::new();
+            s.text_names(&mut names);
+            missing.extend(names.into_iter().filter(|n| !texts.contains_key(n)));
+            s.bind(&texts);
+        });
+        if let Some(m) = &mut self.self_mic {
+            for l in [&mut m.muted, &mut m.open] {
+                if let Label::Text(name, values) = l {
+                    match texts.get(name.as_str()) {
+                        Some(v) => *values = v.clone(),
+                        None => missing.push(name.clone()),
+                    }
+                }
+            }
+        }
+        missing.sort();
+        missing.dedup();
+        missing
+    }
+
+    /// This profile with the installed app's translations: `app` gives each key's text in every language the app has.
+    pub fn localized(&self, app: &dyn Fn(&str) -> Vec<String>) -> Profile {
+        let mut p = self.clone();
+        p.bind(app);
+        p
+    }
+
+    /// The app keys of its texts (what to read from the app's translation tables).
+    pub fn app_keys(&self) -> Vec<&str> {
+        self.texts.values().filter_map(|t| t.app_key.as_deref()).collect()
+    }
+
+    fn each_selector(&mut self, f: &mut dyn FnMut(&mut Selector)) {
+        for s in [&mut self.window, &mut self.prune, &mut self.stage, &mut self.speaking, &mut self.muted, &mut self.obstructed, &mut self.self_tile]
+            .into_iter()
+            .flatten()
+        {
+            f(s);
+        }
+        self.tiles.iter_mut().for_each(&mut *f);
+        let fields = |fl: &mut Vec<Field>, f: &mut dyn FnMut(&mut Selector)| fl.iter_mut().filter_map(|x| x.from.as_mut()).for_each(f);
+        fields(&mut self.name, f);
+        fields(&mut self.speakers, f);
+        fields(&mut self.self_name, f);
+        fields(&mut self.title, f);
+        if let Some(r) = &mut self.roster {
+            f(&mut r.list);
+            f(&mut r.item);
+            for s in [&mut r.is_self, &mut r.muted].into_iter().flatten() {
+                f(s);
+            }
+            fields(&mut r.name, f);
+        }
+        if let Some(e) = &mut self.elsewhere {
+            f(&mut e.item);
+            f(&mut e.prune);
+            fields(&mut e.title, f);
+        }
+    }
+
+    /// A profile from its JSON, its texts bound to their own values (`localized` adds the app's translations).
     pub fn from_json(json: &str) -> anyhow::Result<Profile> {
-        Ok(serde_json::from_str(json)?)
+        let mut p: Profile = serde_json::from_str(json)?;
+        p.check()?;
+        Ok(p)
+    }
+
+    /// Binds the texts to their own values; fails when a selector names a text the profile doesn't define.
+    pub fn check(&mut self) -> anyhow::Result<()> {
+        let missing = self.bind(&|_| Vec::new());
+        anyhow::ensure!(missing.is_empty(), "profile {}: undefined texts {}", self.id, missing.join(", "));
+        Ok(())
     }
 
     pub fn reads(&self, bundle_id: &str, version: Option<&str>) -> bool {
@@ -377,7 +523,8 @@ impl Profile {
                         (Some(t), Some(w)) => t.relative_to(&w),
                         _ => None,
                     };
-                    out.push(Participant { name, speaking, muted, frame });
+                    let is_self = self.self_tile.as_ref().is_some_and(|s| s.matches(tile));
+                    out.push(Participant { name, speaking, muted, frame, is_self });
                 }
             }
         }
@@ -426,7 +573,7 @@ impl Profile {
                     Some(&i) => participants[i].speaking = true,
                     None => {
                         index.insert(name.to_string(), participants.len());
-                        participants.push(Participant { name: name.to_string(), speaking: true, muted: None, frame: None });
+                        participants.push(Participant { name: name.to_string(), speaking: true, muted: None, frame: None, is_self: false });
                     }
                 }
             }
@@ -448,7 +595,7 @@ impl Profile {
                     }
                     None => {
                         index.insert(r.name.clone(), participants.len());
-                        participants.push(Participant { name: r.name.clone(), speaking: false, muted: r.muted, frame: None });
+                        participants.push(Participant { name: r.name.clone(), speaking: false, muted: r.muted, frame: None, is_self: false });
                     }
                 }
             }
@@ -462,7 +609,15 @@ impl Profile {
         if window.is_truncated() {
             issues.push(Issue::Truncated);
         }
-        let self_name = roster.iter().find(|r| r.is_self).map(|r| r.name.clone()).or_else(|| first(&self.self_name, app));
+        // The person on this Mac: the app's list says so, or a rule of the profile, or the one tile that is theirs.
+        let only_self = || {
+            let mut mine = participants.iter().filter(|p| p.is_self);
+            match (mine.next(), mine.next()) {
+                (Some(p), None) => Some(p.name.clone()),
+                _ => None,
+            }
+        };
+        let self_name = roster.iter().find(|r| r.is_self).map(|r| r.name.clone()).or_else(|| first(&self.self_name, app)).or_else(only_self);
         Scrape {
             profile: self.id.clone(),
             revision: self.revision,

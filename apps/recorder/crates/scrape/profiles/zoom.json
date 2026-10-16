@@ -1,17 +1,22 @@
 {
   "id": "zoom",
-  "revision": 3,
+  "revision": 4,
   "apps": ["us.zoom.xos"],
   "platform": "zoom",
   "links": ["^https://([a-z0-9-]+\\.)?zoom\\.us/(j|my|w)/"],
-  "self_mic": { "in": "menu", "muted": "(?i)^(unmute audio|ativar áudio|ativar som)$", "open": "(?i)^(mute audio|desativar áudio|desativar som)$" },
+  "self_mic": { "in": "menu", "muted": "@unmute_audio", "open": "@mute_audio" },
+  "texts": {
+    "video_render": { "app_key": "LN_Accessibility_Video_Render_194601", "values": ["Video render", "Video rendern", "Representación de vídeo", "Rendu vidéo", "Render video", "Rendering video", "ビデオ レンダリング", "비디오 렌더링", "videorender", "Renderowanie wideo", "Renderização de vídeo", "Обработка видео", "Videoåtergivning", "Video oluşturma", "Kết xuất video", "视频渲染", "視訊轉換"] },
+    "unmute_audio": ["Unmute Audio", "Ativar áudio", "Ativar som"],
+    "mute_audio": ["Mute Audio", "Desativar áudio", "Desativar som"]
+  },
   "window": ["descendant", ["or",
-    ["one_of", "role_description", ["Video render", "Video rendern", "Representación de vídeo", "Rendu vidéo", "Render video", "Rendering video", "ビデオ レンダリング", "비디오 렌더링", "videorender", "Renderowanie wideo", "Renderização de vídeo", "Обработка видео", "Videoåtergivning", "Video oluşturma", "Kết xuất video", "视频渲染", "視訊轉換"]],
+    ["is", "role_description", "@video_render"],
     ["and", ["eq", "role", "AXUnknown"], ["matches", "description", "(?i),[^,]*\\b(muted|unmuted|audio)\\b"]],
     ["contains", "value", "Talking:"]
   ]],
   "tiles": [
-    ["one_of", "role_description", ["Video render", "Video rendern", "Representación de vídeo", "Rendu vidéo", "Render video", "Rendering video", "ビデオ レンダリング", "비디오 렌더링", "videorender", "Renderowanie wideo", "Renderização de vídeo", "Обработка видео", "Videoåtergivning", "Video oluşturma", "Kết xuất video", "视频渲染", "視訊轉換"]],
+    ["is", "role_description", "@video_render"],
     ["and", ["eq", "role", "AXUnknown"], ["matches", "description", "(?i),[^,]*\\b(muted|unmuted|audio)\\b"]]
   ],
   "tile_depth": 12,

@@ -101,14 +101,24 @@ pub fn watch(bundle: String, dir: PathBuf, started: Instant, stop: CancellationT
         let mut monitor = Monitor::default();
         let (mut last, mut written) = (None::<Line>, Instant::now() - HEARTBEAT);
         let mut pid: Option<(i32, Option<String>)> = None;
+        let mut localized: Option<(Option<String>, Vec<Profile>)> = None;
         while !stop.is_cancelled() {
             let tick = Instant::now();
             // The app may restart during the call (Teams does): look it up again whenever it is gone.
             if pid.is_none() {
                 pid = recordem_ax::pid_of(&bundle).map(|p| (p, recordem_ax::app_version(p)));
             }
-            let read = pid.as_ref().and_then(|(p, version)| {
-                let profiles = all.for_app(&bundle, version.as_deref());
+            // The profiles for this app version, with the app's own translations of their texts.
+            if pid.is_some() && localized.as_ref().map(|(v, _)| v) != pid.as_ref().map(|(_, v)| v) {
+                let version = pid.as_ref().and_then(|(_, v)| v.clone());
+                let found = all.for_app(&bundle, version.as_deref());
+                let keys: Vec<&str> = found.iter().flat_map(|p| p.app_keys()).collect();
+                let table = crate::apptexts::table(&bundle, version.as_deref(), &keys);
+                let mine: Vec<Profile> = found.iter().map(|p| p.localized(&|k| table.get(k).cloned().unwrap_or_default())).collect();
+                localized = Some((version, mine));
+            }
+            let read = pid.as_ref().zip(localized.as_ref()).and_then(|((p, _), (_, mine))| {
+                let profiles: Vec<&Profile> = mine.iter().collect();
                 snapshot(*p, &profiles).and_then(|tree| recordem_scrape::scrape(&profiles, &tree))
             });
             if read.is_none() {

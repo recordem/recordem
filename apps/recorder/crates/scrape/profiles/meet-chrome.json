@@ -1,6 +1,6 @@
 {
   "id": "meet-chrome",
-  "revision": 6,
+  "revision": 7,
   "apps": [
     "com.google.Chrome",
     "company.thebrowser.Browser",
@@ -13,8 +13,43 @@
   ],
   "self_mic": {
     "in": "window",
-    "muted": "(?i)^(turn on microphone|ativar microfone|activar micrófono)",
-    "open": "(?i)^(turn off microphone|desativar microfone|desactivar micrófono)"
+    "muted": "@turn_on_mic",
+    "open": "@turn_off_mic"
+  },
+  "self_tile": [
+    "descendant",
+    [
+      "starts",
+      "description",
+      "@own_tile_controls"
+    ]
+  ],
+  "texts": {
+    "turn_on_mic": [
+      "Turn on microphone",
+      "Ativar microfone",
+      "Activar micrófono"
+    ],
+    "turn_off_mic": [
+      "Turn off microphone",
+      "Desativar microfone",
+      "Desactivar micrófono"
+    ],
+    "own_tile_controls": [
+      "Planos de fundo e efeitos",
+      "Reenquadrar",
+      "Backgrounds and effects",
+      "Reframe"
+    ],
+    "their_mic_muted": [
+      "Não é possível ativar o som de outra pessoa",
+      "You can't unmute someone else",
+      "No puedes activar el sonido de otra persona"
+    ],
+    "more_options_for": [
+      "Mais opções para",
+      "More options for"
+    ]
   },
   "window": [
     "matches",
@@ -98,6 +133,15 @@
     },
     {
       "from": [
+        "starts",
+        "description",
+        "@more_options_for"
+      ],
+      "attr": "description",
+      "regex": "^(?:Mais opções para|More options for) (?P<v>.+)$"
+    },
+    {
+      "from": [
         "and",
         [
           "eq",
@@ -132,6 +176,14 @@
           "FTMc0c"
         ]
       ]
+    ]
+  ],
+  "muted": [
+    "descendant",
+    [
+      "starts",
+      "description",
+      "@their_mic_muted"
     ]
   ],
   "roster": {

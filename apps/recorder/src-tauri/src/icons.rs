@@ -12,12 +12,8 @@ pub fn of(bundle_id: &str) -> Option<String> {
     let dir = crate::config::root().join("icons");
     let png = dir.join(format!("{bundle_id}.png"));
     if !png.exists() {
-        let script = format!("POSIX path of (path to application id \"{bundle_id}\")");
-        let out = Command::new("osascript").args(["-e", &script]).output().ok()?;
-        let app = String::from_utf8(out.stdout).ok()?.trim().trim_end_matches('/').to_string();
-        if !out.status.success() || app.is_empty() {
-            return None;
-        }
+        let app = app_path(bundle_id)?;
+        let app = app.to_string_lossy().to_string();
         let out = Command::new("defaults").args(["read", &format!("{app}/Contents/Info"), "CFBundleIconFile"]).output().ok()?;
         let name = String::from_utf8(out.stdout).ok()?.trim().to_string();
         if !out.status.success() || name.is_empty() {
@@ -33,4 +29,15 @@ pub fn of(bundle_id: &str) -> Option<String> {
     }
     let bytes = std::fs::read(&png).ok()?;
     Some(format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
+}
+
+/// Where the app `bundle_id` is installed (Launch Services, through AppleScript; nothing is launched).
+pub fn app_path(bundle_id: &str) -> Option<std::path::PathBuf> {
+    if bundle_id.is_empty() || !bundle_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-') {
+        return None;
+    }
+    let script = format!("POSIX path of (path to application id \"{bundle_id}\")");
+    let out = Command::new("osascript").args(["-e", &script]).output().ok()?;
+    let app = String::from_utf8(out.stdout).ok()?.trim().trim_end_matches('/').to_string();
+    (out.status.success() && !app.is_empty()).then(|| app.into())
 }

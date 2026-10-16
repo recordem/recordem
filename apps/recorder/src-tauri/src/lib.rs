@@ -5,6 +5,7 @@
 // Phases: setup → models → permissions → idle ⇄ detected → recording → processing → done | failed → idle.
 // A recording that couldn't be transcribed or sent stays in recordings/<id>/ and is resumed when the app opens.
 mod api;
+mod apptexts;
 mod asr;
 mod bench;
 mod callurl;
