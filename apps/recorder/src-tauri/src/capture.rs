@@ -5,12 +5,14 @@
 // Optionally a third file, mic_hq.wav: the same microphone at 48 kHz from a capture of its own, without echo
 // cancellation (which runs at 16 kHz and colours the voice). It is the person's own voice in full quality, to listen
 // back to (pronunciation, pace) — with headphones it is clean; on speakers some of the call leaks in.
-use anlg_audio::CaptureConfig;
+use anlg_audio::{CaptureChannel, CaptureConfig, CaptureEvent};
 use anlg_audio_actual::AudioInput;
+use anlg_device_monitor::{DeviceSwitch, DeviceSwitchMonitor};
 use futures_util::StreamExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
 pub const RATE: u32 = 16_000;
@@ -47,31 +49,52 @@ fn write(w: &mut hound::WavWriter<std::io::BufWriter<std::fs::File>>, samples: &
 /// every frame (the live transcript); it is dropped, which ends that transcript, when the recording ends. While
 /// `muted` is on, the mic is written (and sent live) as silence; its peak still counts, as a check of the permission.
 /// `voice_hq` adds mic_hq.wav (48 kHz, no AEC); if that capture can't open, the recording goes on without it.
-pub async fn record(dir: &Path, mic_device: Option<String>, voice_hq: bool, stop: CancellationToken, live: Option<std::sync::mpsc::Sender<crate::live::Frame>>, muted: Arc<AtomicBool>) -> anyhow::Result<(f32, f32)> {
+/// `voices` gets the system channel as it is written, for diarize.rs.
+///
+/// The mic and the system audio recover apart (Anarlog's capture): when one stops, the other goes on and the missing
+/// time is written as silence, so both files stay on the call's clock. On top of that, with no `mic_device` chosen
+/// the mic follows the macOS default when it changes mid-call (a headset put on, a pick in Meet), and a mic that
+/// hands over nothing but exact zeros — a device gone away under the stream, never a quiet room — is opened again a
+/// few times, slower each time. Only the mic restarts; the call's audio never stops.
+pub async fn record(dir: &Path, mic_device: Option<String>, voice_hq: bool, stop: CancellationToken, live: Option<std::sync::mpsc::Sender<crate::live::Frame>>, voices: std::sync::mpsc::Sender<Arc<[f32]>>, muted: Arc<AtomicBool>) -> anyhow::Result<(f32, f32)> {
     std::fs::create_dir_all(dir)?;
     let f = files(dir);
     let mut mic = writer(&f.mic)?;
     let mut system = writer(&f.system)?;
-    let mut hq = None;
-    if voice_hq {
-        match AudioInput::from_mic_capture(mic_device.clone(), HQ_RATE, (HQ_RATE / 10) as usize) {
-            Ok(s) => hq = Some((s, writer_at(&f.mic_hq, HQ_RATE)?)),
-            Err(e) => eprintln!("high-quality voice track unavailable: {e}"),
-        }
-    }
+    let mut hq_file = if voice_hq { Some(writer_at(&f.mic_hq, HQ_RATE)?) } else { None };
+    let open_hq = || {
+        AudioInput::from_mic_capture(mic_device.clone(), HQ_RATE, (HQ_RATE / 10) as usize)
+            .map_err(|e| eprintln!("high-quality voice track unavailable: {e}"))
+            .ok()
+    };
+    let mut hq = hq_file.as_ref().and_then(|_| open_hq());
     let mut stream = AudioInput::from_mic_and_speaker(CaptureConfig {
         sample_rate: RATE,
         chunk_size: (RATE / 10) as usize,
-        mic_device,
+        mic_device: mic_device.clone(),
         enable_aec: true,
     })
     .map_err(|e| anyhow::anyhow!("couldn't open the audio: {e}"))?;
+    let started = Instant::now();
+    let mut written_hq = 0u64;
+    let (switch_tx, switches) = std::sync::mpsc::channel();
+    let _monitor = mic_device.is_none().then(|| DeviceSwitchMonitor::spawn_debounced(switch_tx));
+    // The macOS default mic when the mic channel last opened (after any Bluetooth handoff it caused): a switch to the
+    // same one is our own doing, not the person's.
+    let mut opened_on = anlg_audio_device::default_input_device_name();
+    let mut tick = tokio::time::interval(Duration::from_millis(500));
+    let (mut zeros, mut retries, mut retry_at) = (Duration::ZERO, 0u32, None::<Instant>);
     let (mut peak_mic, mut peak_sys) = (0f32, 0f32);
     loop {
         tokio::select! {
             _ = stop.cancelled() => break,
-            frame = stream.next() => match frame {
-                Some(Ok(fr)) => {
+            event = stream.next_event() => match event {
+                Some(Ok(CaptureEvent::Frame(fr))) => {
+                    if fr.raw_mic.iter().all(|x| *x == 0.0) {
+                        zeros += Duration::from_secs_f64(fr.raw_mic.len() as f64 / RATE as f64);
+                    } else {
+                        (zeros, retries, retry_at) = (Duration::ZERO, 0, None);
+                    }
                     let mut m = fr.preferred_mic();
                     peak_mic = m.iter().fold(peak_mic, |a, x| a.max(x.abs()));
                     if muted.load(Ordering::Relaxed) {
@@ -83,32 +106,78 @@ pub async fn record(dir: &Path, mic_device: Option<String>, voice_hq: bool, stop
                     if let Some(tx) = &live {
                         let _ = tx.send(crate::live::Frame { mic: m.to_vec(), system: fr.raw_speaker.to_vec() });
                     }
+                    let _ = voices.send(fr.raw_speaker.clone());
                 }
+                // Both channels down at once: silence for the time they were gone.
+                Some(Ok(CaptureEvent::Gap(fr))) => {
+                    write(&mut mic, &fr.raw_mic)?;
+                    write(&mut system, &fr.raw_speaker)?;
+                    if let Some(tx) = &live {
+                        let _ = tx.send(crate::live::Frame { mic: fr.raw_mic.to_vec(), system: fr.raw_speaker.to_vec() });
+                    }
+                    let _ = voices.send(fr.raw_speaker.clone());
+                }
+                Some(Ok(CaptureEvent::ChannelReady { channel, device })) => {
+                    eprintln!("capture: {channel:?} ready on {}", device.as_deref().unwrap_or("the default device"));
+                    if channel == CaptureChannel::Mic {
+                        opened_on = anlg_audio_device::default_input_device_name();
+                    }
+                }
+                Some(Ok(CaptureEvent::ChannelFailed { channel, error })) => eprintln!("capture: {channel:?} stopped ({error}), retrying"),
                 Some(Err(e)) => anyhow::bail!("the capture stopped: {e}"),
                 None => break,
             },
-            frame = async { match hq.as_mut() { Some((s, _)) => s.next().await, None => std::future::pending().await } } => match frame {
-                Some(Ok(fr)) => {
-                    let w = &mut hq.as_mut().expect("hq").1;
+            frame = async { match hq.as_mut() { Some(s) => s.next().await, None => std::future::pending().await } } => match (frame, hq_file.as_mut()) {
+                (Some(Ok(fr)), Some(w)) => {
                     if muted.load(Ordering::Relaxed) {
                         write(w, &vec![0.0; fr.raw_mic.len()])?;
                     } else {
                         write(w, &fr.raw_mic)?;
                     }
+                    written_hq += fr.raw_mic.len() as u64;
                 }
                 // The high-quality track is a bonus: when its capture fails, it stops and the recording goes on.
-                Some(Err(e)) => { eprintln!("high-quality voice track stopped: {e}"); if let Some((_, w)) = hq.take() { w.finalize()?; } }
-                None => { if let Some((_, w)) = hq.take() { w.finalize()?; } }
+                (Some(Err(e)), _) => { eprintln!("high-quality voice track stopped: {e}"); hq = None; }
+                _ => hq = None,
+            },
+            _ = tick.tick() => {
+                let switched = switches.try_iter().any(|s| matches!(s, DeviceSwitch::DefaultInputChanged))
+                    && anlg_audio_device::default_input_device_name() != opened_on;
+                let dead = zeros >= DEAD_MIC && retry_at.is_none_or(|t| Instant::now() >= t) && retries < 4;
+                if !switched && !dead {
+                    continue;
+                }
+                eprintln!("mic: reopening ({})", if switched { "the default mic changed" } else { "it only gives zeros" });
+                if dead {
+                    retries += 1;
+                    retry_at = Some(Instant::now() + DEAD_MIC * 3u32.pow(retries));
+                }
+                zeros = Duration::ZERO;
+                stream.retry(mic_device.clone(), true);
+                // The 48 kHz track is a capture of its own: closed first (it holds the device), opened again, and the
+                // time in between written as silence.
+                if let Some(w) = hq_file.as_mut() {
+                    drop(hq.take());
+                    hq = open_hq();
+                    let due = (started.elapsed().as_secs_f64() * HQ_RATE as f64) as u64;
+                    if let Some(n) = due.checked_sub(written_hq).filter(|n| *n > 0) {
+                        write(w, &vec![0.0; n as usize])?;
+                        written_hq += n;
+                    }
+                }
             }
         }
     }
     mic.finalize()?;
     system.finalize()?;
-    if let Some((_, w)) = hq {
+    if let Some(w) = hq_file {
         w.finalize()?;
     }
     Ok((peak_mic, peak_sys))
 }
+
+/// How long a mic may give only exact zeros before it is opened again.
+const DEAD_MIC: Duration = Duration::from_secs(3);
 
 pub fn read(p: &Path) -> anyhow::Result<Vec<f32>> {
     let mut r = hound::WavReader::open(p)?;

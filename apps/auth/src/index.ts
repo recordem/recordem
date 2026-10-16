@@ -94,7 +94,7 @@ app.post("/consent", async (c) => {
 const esc = (s: string) => s.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]!);
 
 await ensureFirstParty(pool, { id: "recordem-web", name: "Recordem", type: "web", redirectUris: ORIGINS.map((o) => `${o}/callback`) });
-await ensureFirstParty(pool, { id: "recordem-recorder", name: "Recordem recorder", type: "native", redirectUris: ["recordem://oauth"] });
+await ensureFirstParty(pool, { id: "recordem-recorder", name: "Recordem recorder", type: "native", redirectUris: ["recordem://oauth", "recordem-dev://oauth"] });
 
 const port = Number(process.env.AUTH_PORT ?? 39410);
 console.log(`auth on :${port} (issuer ${AUTH_URL})`);

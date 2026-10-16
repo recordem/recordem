@@ -305,6 +305,8 @@ export interface components {
             from: number;
             segments: components["schemas"]["Segment"][];
             participants?: components["schemas"]["Participants"];
+            /** @description Names for the live voices so far (who the call app showed speaking during each line); sent when they change. Names set by hand are kept */
+            speakers?: components["schemas"]["SpeakerName"][];
             /** @description The last batch: the recording ended */
             ended?: boolean;
         };
@@ -335,6 +337,21 @@ export interface components {
             muted?: boolean | null;
             /** @description Whoever runs the recorder */
             self?: boolean;
+        };
+        SpeakerName: {
+            /**
+             * @description A voice of the transcript: "system:1", "system:2", …
+             * @example system:1
+             */
+            label: string;
+            name: string;
+            /**
+             * @description platform: the call app showed them speaking; llm: inferred from what was said; user: set by hand
+             * @enum {string}
+             */
+            source: "platform" | "llm" | "user";
+            /** @description How sure the source is, 0–1; none for user */
+            confidence?: number | null;
         };
         Recording: {
             /** Format: uuid */
@@ -421,21 +438,6 @@ export interface components {
             segments: components["schemas"]["Segment"][];
             /** @description Names for the voices; a label not listed has none */
             speakers: components["schemas"]["SpeakerName"][];
-        };
-        SpeakerName: {
-            /**
-             * @description A voice of the transcript: "system:1", "system:2", …
-             * @example system:1
-             */
-            label: string;
-            name: string;
-            /**
-             * @description platform: the call app showed them speaking; llm: inferred from what was said; user: set by hand
-             * @enum {string}
-             */
-            source: "platform" | "llm" | "user";
-            /** @description How sure the source is, 0–1; none for user */
-            confidence?: number | null;
         };
         Match: {
             /** Format: uuid */

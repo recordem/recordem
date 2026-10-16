@@ -53,21 +53,28 @@ pub(crate) fn speech_in(ctx: &mut WhisperVadContext, audio: &[f32]) -> anyhow::R
 /// The system channel's turns by voice: (start, end, speaker), speakers numbered from 0 by first appearance. Turns of one
 /// voice closer than MERGE_GAP are joined up to MAX_CHUNK; the padding never reaches into a neighbouring turn of another
 /// voice (it would put their words in this line). None when diarization finds no one, or fails: then VAD, no voices.
-fn voices(audio: &[f32], progress: &Arc<AtomicU32>, base: f32, weight: f32) -> Option<Vec<(usize, usize, usize)>> {
+/// `found`: what diarize.rs found during the call; diarized here only without it.
+fn voices(audio: &[f32], found: Option<Vec<SpeakerSegment>>, progress: &Arc<AtomicU32>, base: f32, weight: f32) -> Option<Vec<(usize, usize, usize)>> {
     const RATE: usize = crate::capture::RATE as usize;
     const MERGE_GAP: usize = RATE;          // 1 s
     const MAX_CHUNK: usize = 25 * RATE;     // whisper's window is 30 s
     const PAD: usize = RATE * 15 / 100;     // 150 ms
     let on_progress = |f: f32| progress.store(((base + weight * f) * 1000.0) as u32, Ordering::Relaxed);
-    let mut src = audio;
-    let found = Diarizer::new(DiarizationConfig::default())
-        .and_then(|mut d| d.diarize(&mut src, &DiarizeRequest { on_progress: Some(&on_progress), ..Default::default() }));
     let mut segs: Vec<SpeakerSegment> = match found {
-        Ok(d) if !d.segments.is_empty() => d.segments,
-        Ok(_) => return None,
-        Err(e) => {
-            eprintln!("diarization failed, falling back to VAD: {e}");
-            return None;
+        Some(segs) if !segs.is_empty() => segs,
+        Some(_) => return None,
+        None => {
+            let mut src = audio;
+            match Diarizer::new(DiarizationConfig::default())
+                .and_then(|mut d| d.diarize(&mut src, &DiarizeRequest { on_progress: Some(&on_progress), ..Default::default() }))
+            {
+                Ok(d) if !d.segments.is_empty() => d.segments,
+                Ok(_) => return None,
+                Err(e) => {
+                    eprintln!("diarization failed, falling back to VAD: {e}");
+                    return None;
+                }
+            }
         }
     };
     segs.sort_by(|a, b| a.start.total_cmp(&b.start));
@@ -139,7 +146,7 @@ pub(crate) fn turn(engine: &mut dyn Engine, audio: &[f32], at: usize, lang: &str
 /// Both channels, merged by start time. `progress` goes 0..1000 over the whole job.
 /// `languages`: the ones the calls may be in, comma-separated ("pt,en"); each turn is transcribed in one of them.
 /// `engine`: the setting (asr::open), e.g. "whisper".
-pub fn run(mic: &[f32], system: &[f32], languages: &str, vocabulary: &str, engine: &str, progress: &Arc<AtomicU32>) -> anyhow::Result<Vec<Segment>> {
+pub fn run(mic: &[f32], system: &[f32], found: Option<Vec<SpeakerSegment>>, languages: &str, vocabulary: &str, engine: &str, progress: &Arc<AtomicU32>) -> anyhow::Result<Vec<Segment>> {
     let langs = crate::config::languages(languages);
     let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(8);
     let mut engine = crate::asr::open(engine, threads)?;
@@ -149,7 +156,7 @@ pub fn run(mic: &[f32], system: &[f32], languages: &str, vocabulary: &str, engin
     let mut segs = channel(engine.as_mut(), mic, mic_turns, &langs, vocabulary, "mic", progress, 0.0, wm)?;
     // The other side: about a third of its time goes to telling the voices apart, the rest to the engine.
     let ws = 1.0 - wm;
-    let system_turns = match voices(system, progress, wm, ws / 3.0) {
+    let system_turns = match voices(system, found, progress, wm, ws / 3.0) {
         Some(v) => v.into_iter().map(|(a, b, k)| (a, b, Some(format!("system:{}", k + 1)))).collect(),
         None => speech(system)?.into_iter().map(|(a, b)| (a, b, None)).collect(),
     };

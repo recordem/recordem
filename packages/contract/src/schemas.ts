@@ -92,6 +92,7 @@ export const LiveBatch = z.object({
   from: z.number().int().min(0).openapi({ description: "Index of the first segment in this batch" }),
   segments: z.array(Segment).max(2_000),
   participants: Participants.optional().openapi({ description: "Who is in the call now; sent when it changes" }),
+  speakers: z.array(SpeakerName).max(200).optional().openapi({ description: "Names for the live voices so far (who the call app showed speaking during each line); sent when they change. Names set by hand are kept" }),
   ended: z.boolean().optional().openapi({ description: "The last batch: the recording ended" }),
 }).openapi("LiveBatch");
 

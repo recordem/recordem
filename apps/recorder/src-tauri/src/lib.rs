@@ -10,6 +10,8 @@ mod bench;
 mod callurl;
 mod capture;
 mod config;
+mod diarize;
+mod icons;
 mod live;
 mod models;
 mod mute;
@@ -49,7 +51,8 @@ const MEETING_APPS: &[(&str, Option<&str>)] = &[
 
 /// Menu-bar icons: a template (macOS tints it for light and dark bars) and a red one while recording.
 const TRAY: &[u8] = include_bytes!("../icons/tray.png");
-const TRAY_REC: &[u8] = include_bytes!("../icons/tray-rec.png");
+// A dev build records in violet (icons/dev, scripts/icons.py), and says "DEV" next to its menu-bar icon.
+const TRAY_REC: &[u8] = if DEV { include_bytes!("../icons/dev/tray-rec.png") } else { include_bytes!("../icons/tray-rec.png") };
 
 /// After the call app lets go of the mic, wait this long before stopping (a reconnect or device switch is not the end).
 const STOP_GRACE_SECS: u64 = 45;
@@ -157,11 +160,11 @@ fn set_phase(app: &AppHandle, p: Phase) {
     }
 }
 
-fn tooltip(recording: bool, muted: bool) -> &'static str {
+fn tooltip(recording: bool, muted: bool) -> String {
     match (recording, muted) {
-        (true, true) => "Recordem: recording, mic muted",
-        (true, false) => "Recordem: recording",
-        _ => "Recordem",
+        (true, true) => format!("{}: recording, mic muted", config::APP),
+        (true, false) => format!("{}: recording", config::APP),
+        _ => config::APP.into(),
     }
 }
 
@@ -205,32 +208,61 @@ fn show_prompt(app: &AppHandle) {
         let _ = w.show();
         return;
     }
-    const W: f64 = 380.0;
-    const H: f64 = 86.0;
+    const W: f64 = 360.0;
+    const H: f64 = 70.0;
+    // A notification's material, corners and shadow: the card is the whole window.
+    let effects = tauri::utils::config::WindowEffectsConfig {
+        effects: vec![tauri::window::Effect::Popover],
+        state: Some(tauri::window::EffectState::Active),
+        radius: Some(14.0),
+        color: None,
+    };
     let b = tauri::WebviewWindowBuilder::new(app, "prompt", tauri::WebviewUrl::App("prompt.html".into()))
         .title("Record this call?")
         .inner_size(W, H)
         .decorations(false)
         .transparent(true)
-        .shadow(false)
+        .effects(effects)
+        .shadow(true)
         .resizable(false)
         .always_on_top(true)
         .visible_on_all_workspaces(true)
         .skip_taskbar(true)
         .focused(false)
         .content_protected(true);
-    // Under the menu bar, at the right edge of the screen the call is on (the main one).
+    // Under the menu bar, at the right edge of the screen the call is on (the main one). A dev build's card sits one
+    // card lower, so with the release also running both stay readable.
     let b = match app.primary_monitor() {
         Ok(Some(m)) => {
             let sf = m.scale_factor();
             let (size, pos) = (m.size().to_logical::<f64>(sf), m.position().to_logical::<f64>(sf));
-            b.position(pos.x + size.width - W - 6.0, pos.y + 30.0)
+            let slot = if DEV { H + 10.0 } else { 0.0 };
+            b.position(pos.x + size.width - W - 12.0, pos.y + 34.0 + slot)
         }
         _ => b,
     };
     if let Err(e) = b.build() {
         eprintln!("call prompt: {e}");
     }
+}
+
+/// A dev build (scripts/dev-build.sh): the windows show it, in their own colour.
+const DEV: bool = option_env!("RECORDEM_APP").is_some();
+
+#[derive(Serialize)]
+struct Flavor {
+    app: &'static str,
+    dev: bool,
+}
+
+#[tauri::command]
+fn flavor() -> Flavor {
+    Flavor { app: config::APP, dev: DEV }
+}
+
+#[tauri::command]
+async fn app_icon(bundle_id: String) -> Option<String> {
+    tauri::async_runtime::spawn_blocking(move || icons::of(&bundle_id)).await.ok().flatten()
 }
 
 fn hide_prompt(app: &AppHandle) {
@@ -596,10 +628,10 @@ async fn start(app: AppHandle, meeting_id: Option<String>) -> Result<(), String>
                 eprintln!("live transcript stopped: {e}");
             }
         });
-        let (cfg2, id, stop2, people) = (cfg.clone(), meta.id.clone(), stop.clone(), people.clone());
+        let (cfg2, id, stop2, people, dir2) = (cfg.clone(), meta.id.clone(), stop.clone(), people.clone(), dir.clone());
         let sender = tauri::async_runtime::spawn(async move {
             if created.await.unwrap_or(false) {
-                live::send(cfg2, id, segs, stop2, people).await;
+                live::send(cfg2, id, segs, stop2, people, dir2).await;
             }
         });
         (Some(frames_tx), Some((worker, sender)))
@@ -623,7 +655,12 @@ async fn start(app: AppHandle, meeting_id: Option<String>) -> Result<(), String>
     let app2 = app.clone();
     let muted = st.muted.clone();
     tauri::async_runtime::spawn(async move {
-        let result = capture::record(&dir, cfg.mic_device.clone(), cfg.voice_hq, stop, live_tx, muted).await;
+        // The other side's voices are told apart as the call goes; the pass after it only clusters them.
+        let (voices_tx, voices_rx) = std::sync::mpsc::channel();
+        let vdir = dir.clone();
+        let voices = std::thread::spawn(move || diarize::during(voices_rx, &vdir));
+        let result = capture::record(&dir, cfg.mic_device.clone(), cfg.voice_hq, stop, live_tx, voices_tx, muted).await;
+        let _ = tauri::async_runtime::spawn_blocking(move || voices.join()).await;
         // The capture dropped its end: the live thread finishes the turn it is on and stops, before the pass after
         // the call needs Whisper. Its sender gets one last try.
         if let Some((worker, sender)) = live {
@@ -756,7 +793,7 @@ async fn process(app: &AppHandle, dir: PathBuf, warning: Option<String>) {
             let model = format!("{} + silero vad + pyannote", asr::describe(&engine));
             let segs = tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<_> {
                 let f = capture::files(&d);
-                transcribe::run(&capture::read(&f.mic)?, &capture::read(&f.system)?, &lang, &vocabulary, &engine, &progress)
+                transcribe::run(&capture::read(&f.mic)?, &capture::read(&f.system)?, diarize::found(&d), &lang, &vocabulary, &engine, &progress)
             })
             .await;
             let segments = match segs {
@@ -970,7 +1007,7 @@ pub fn run() {
             TrayIconBuilder::with_id("main")
                 .icon(Image::from_bytes(TRAY)?)
                 .icon_as_template(true)
-                .tooltip("Recordem")
+                .tooltip(config::APP)
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_tray_icon_event(|tray, ev| {
@@ -1008,6 +1045,9 @@ pub fn run() {
                     _ => {}
                 })
                 .build(app)?;
+            if DEV && let Some(t) = app.tray_by_id("main") {
+                let _ = t.set_title(Some("DEV"));
+            }
 
             // The detector lives as long as the app; it runs its own Core Audio listener thread.
             let detector: &'static mut anlg_detect::Detector = Box::leak(Box::default());
@@ -1053,7 +1093,7 @@ pub fn run() {
                 let _ = w.hide();
             }
         })
-        .invoke_handler(tauri::generate_handler![status, get_config, save_config, login, logout, download_models, lookup, start, stop, toggle_mute, dismiss, show_main, open, open_live, version, request_permission, open_permission, permission_list, finish_onboarding])
+        .invoke_handler(tauri::generate_handler![status, flavor, app_icon, get_config, save_config, login, logout, download_models, lookup, start, stop, toggle_mute, dismiss, show_main, open, open_live, version, request_permission, open_permission, permission_list, finish_onboarding])
         .run(tauri::generate_context!())
         .expect("error while running the recorder");
 }

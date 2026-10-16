@@ -29,7 +29,7 @@ function header(page) {
   $top.className = page ? "sub" : "";
   $top.innerHTML = page
     ? `<button class="back" id="back">‹ ${esc(page.back)}</button><strong>${esc(page.title)}</strong><span></span>`
-    : `<span class="logo" aria-hidden="true"></span><strong>Recordem</strong>
+    : `<span class="logo" aria-hidden="true"></span><strong>Recordem</strong>${document.documentElement.dataset.flavor === "dev" ? `<span class="tag">DEV</span>` : ""}
        <button id="gear" class="icon" title="Settings" aria-label="Settings">⚙</button>`;
   if (page) document.getElementById("back").onclick = page.onBack;
   else document.getElementById("gear").onclick = () => { showSettings = true; showPerms = false; tick(true); };
@@ -302,6 +302,12 @@ async function version() {
   } catch { /* no footer */ }
 }
 
+// A dev build shows it (violet, a DEV tag) so it never passes for the release.
+invoke("flavor").then((f) => {
+  document.documentElement.dataset.flavor = f.dev ? "dev" : "";
+  document.getElementById("top").dataset.key = "";
+  tick(true);
+});
 tick(true);
 setInterval(() => tick(false), 700);
 version();

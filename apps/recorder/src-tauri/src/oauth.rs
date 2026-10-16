@@ -8,7 +8,10 @@ use sha2::{Digest, Sha256};
 use std::sync::Mutex;
 
 pub const CLIENT_ID: &str = "recordem-recorder";
-pub const REDIRECT: &str = "recordem://oauth";
+/// recordem://oauth (recordem-dev://oauth for a dev build).
+pub fn redirect() -> String {
+    format!("{}://oauth", crate::config::SCHEME)
+}
 const SCOPE: &str = "openid profile email offline_access meetings:read meetings:write transcripts:read";
 
 /// The login in flight: (state, PKCE verifier). One at a time; a new sign-in replaces it.
@@ -61,7 +64,7 @@ pub async fn begin() -> anyhow::Result<String> {
     u.query_pairs_mut()
         .append_pair("response_type", "code")
         .append_pair("client_id", CLIENT_ID)
-        .append_pair("redirect_uri", REDIRECT)
+        .append_pair("redirect_uri", &redirect())
         .append_pair("scope", SCOPE)
         .append_pair("code_challenge", &challenge)
         .append_pair("code_challenge_method", "S256")
@@ -96,7 +99,7 @@ pub async fn finish(url: &tauri::Url) -> anyhow::Result<()> {
         .form(&[
             ("grant_type", "authorization_code"),
             ("code", code),
-            ("redirect_uri", REDIRECT),
+            ("redirect_uri", &redirect()),
             ("client_id", CLIENT_ID),
             ("code_verifier", &verifier),
             ("resource", &res),

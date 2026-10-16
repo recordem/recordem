@@ -17,7 +17,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 [[package]]
 name = "aec"
 version = "0.1.0"
-source = "git+https://github.com/fastrepl/anarlog?rev=10dca7e1b24058f1bd9cba4107ac1fd5588c974c#10dca7e1b24058f1bd9cba4107ac1fd5588c974c"
+source = "git+https://github.com/fastrepl/anarlog?rev=53e3624ba499fbd0900de66c75a01f23877cc276#53e3624ba499fbd0900de66c75a01f23877cc276"
 dependencies = [
  "onnx",
  "realfft",
@@ -331,7 +331,7 @@ dependencies = [
 [[package]]
 name = "audio"
 version = "0.1.0"
-source = "git+https://github.com/fastrepl/anarlog?rev=10dca7e1b24058f1bd9cba4107ac1fd5588c974c#10dca7e1b24058f1bd9cba4107ac1fd5588c974c"
+source = "git+https://github.com/fastrepl/anarlog?rev=53e3624ba499fbd0900de66c75a01f23877cc276#53e3624ba499fbd0900de66c75a01f23877cc276"
 dependencies = [
  "futures-util",
  "thiserror 2.0.18",
@@ -340,7 +340,7 @@ dependencies = [
 [[package]]
 name = "audio-actual"
 version = "0.1.0"
-source = "git+https://github.com/fastrepl/anarlog?rev=10dca7e1b24058f1bd9cba4107ac1fd5588c974c#10dca7e1b24058f1bd9cba4107ac1fd5588c974c"
+source = "git+https://github.com/fastrepl/anarlog?rev=53e3624ba499fbd0900de66c75a01f23877cc276#53e3624ba499fbd0900de66c75a01f23877cc276"
 dependencies = [
  "aec",
  "anyhow",
@@ -376,7 +376,7 @@ checksum = "f93ebbf82d06013f4c41fe71303feb980cddd78496d904d06be627972de51a24"
 [[package]]
 name = "audio-device"
 version = "0.1.0"
-source = "git+https://github.com/fastrepl/anarlog?rev=10dca7e1b24058f1bd9cba4107ac1fd5588c974c#10dca7e1b24058f1bd9cba4107ac1fd5588c974c"
+source = "git+https://github.com/fastrepl/anarlog?rev=53e3624ba499fbd0900de66c75a01f23877cc276#53e3624ba499fbd0900de66c75a01f23877cc276"
 dependencies = [
  "cidre",
  "libpulse-binding",
@@ -391,7 +391,7 @@ dependencies = [
 [[package]]
 name = "audio-interface"
 version = "0.1.0"
-source = "git+https://github.com/fastrepl/anarlog?rev=10dca7e1b24058f1bd9cba4107ac1fd5588c974c#10dca7e1b24058f1bd9cba4107ac1fd5588c974c"
+source = "git+https://github.com/fastrepl/anarlog?rev=53e3624ba499fbd0900de66c75a01f23877cc276#53e3624ba499fbd0900de66c75a01f23877cc276"
 dependencies = [
  "dasp",
  "futures-util",
@@ -401,12 +401,12 @@ dependencies = [
 [[package]]
 name = "audio-mime"
 version = "0.1.0"
-source = "git+https://github.com/fastrepl/anarlog?rev=10dca7e1b24058f1bd9cba4107ac1fd5588c974c#10dca7e1b24058f1bd9cba4107ac1fd5588c974c"
+source = "git+https://github.com/fastrepl/anarlog?rev=53e3624ba499fbd0900de66c75a01f23877cc276#53e3624ba499fbd0900de66c75a01f23877cc276"
 
 [[package]]
 name = "audio-sync"
 version = "0.1.0"
-source = "git+https://github.com/fastrepl/anarlog?rev=10dca7e1b24058f1bd9cba4107ac1fd5588c974c#10dca7e1b24058f1bd9cba4107ac1fd5588c974c"
+source = "git+https://github.com/fastrepl/anarlog?rev=53e3624ba499fbd0900de66c75a01f23877cc276#53e3624ba499fbd0900de66c75a01f23877cc276"
 dependencies = [
  "realfft",
 ]
@@ -414,7 +414,7 @@ dependencies = [
 [[package]]
 name = "audio-utils"
 version = "0.1.0"
-source = "git+https://github.com/fastrepl/anarlog?rev=10dca7e1b24058f1bd9cba4107ac1fd5588c974c#10dca7e1b24058f1bd9cba4107ac1fd5588c974c"
+source = "git+https://github.com/fastrepl/anarlog?rev=53e3624ba499fbd0900de66c75a01f23877cc276#53e3624ba499fbd0900de66c75a01f23877cc276"
 dependencies = [
  "audio-interface",
  "audio-mime",
@@ -669,7 +669,7 @@ checksum = "5d20789868f4b01b2f2caec9f5c4e0213b41e3e5702a50157d699ae31ced2fcb"
 [[package]]
 name = "bundle"
 version = "0.1.0"
-source = "git+https://github.com/fastrepl/anarlog?rev=10dca7e1b24058f1bd9cba4107ac1fd5588c974c#10dca7e1b24058f1bd9cba4107ac1fd5588c974c"
+source = "git+https://github.com/fastrepl/anarlog?rev=53e3624ba499fbd0900de66c75a01f23877cc276#53e3624ba499fbd0900de66c75a01f23877cc276"
 dependencies = [
  "cidre",
  "plist",
@@ -1494,7 +1494,7 @@ dependencies = [
 [[package]]
 name = "detect"
 version = "0.1.0"
-source = "git+https://github.com/fastrepl/anarlog?rev=10dca7e1b24058f1bd9cba4107ac1fd5588c974c#10dca7e1b24058f1bd9cba4107ac1fd5588c974c"
+source = "git+https://github.com/fastrepl/anarlog?rev=53e3624ba499fbd0900de66c75a01f23877cc276#53e3624ba499fbd0900de66c75a01f23877cc276"
 dependencies = [
  "atspi",
  "block2",
@@ -1528,6 +1528,17 @@ name = "deunicode"
 version = "1.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "abd57806937c9cc163efc8ea3910e00a62e2aeb0b8119f1793a978088f8f6b04"
+
+[[package]]
+name = "device-monitor"
+version = "0.1.0"
+source = "git+https://github.com/fastrepl/anarlog?rev=53e3624ba499fbd0900de66c75a01f23877cc276#53e3624ba499fbd0900de66c75a01f23877cc276"
+dependencies = [
+ "audio-device",
+ "cidre",
+ "libpulse-binding",
+ "tracing",
+]
 
 [[package]]
 name = "digest"
@@ -1742,7 +1753,7 @@ checksum = "4ef6b89e5b37196644d8796de5268852ff179b44e96276cf4290264843743bb7"
 [[package]]
 name = "embedding"
 version = "0.1.0"
-source = "git+https://github.com/fastrepl/anarlog?rev=10dca7e1b24058f1bd9cba4107ac1fd5588c974c#10dca7e1b24058f1bd9cba4107ac1fd5588c974c"
+source = "git+https://github.com/fastrepl/anarlog?rev=53e3624ba499fbd0900de66c75a01f23877cc276#53e3624ba499fbd0900de66c75a01f23877cc276"
 dependencies = [
  "knf-rs",
  "onnx",
@@ -1842,11 +1853,10 @@ checksum = "af9673d8203fcb076b19dfd17e38b3d4ae9f44959416ea532ce72415a6020365"
 
 [[package]]
 name = "eyre"
-version = "0.6.14"
+version = "0.6.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c08309dbcc659c5549a24ddb9b27027640641b282ef5768267c7e675558986a3"
+checksum = "7cd915d99f24784cdc19fd37ef22b97e3ff0ae756c7e492e9fbfe897d61e2aec"
 dependencies = [
- "autocfg",
  "indenter",
  "once_cell",
 ]
@@ -3071,7 +3081,7 @@ dependencies = [
 [[package]]
 name = "language"
 version = "0.1.0"
-source = "git+https://github.com/fastrepl/anarlog?rev=10dca7e1b24058f1bd9cba4107ac1fd5588c974c#10dca7e1b24058f1bd9cba4107ac1fd5588c974c"
+source = "git+https://github.com/fastrepl/anarlog?rev=53e3624ba499fbd0900de66c75a01f23877cc276#53e3624ba499fbd0900de66c75a01f23877cc276"
 dependencies = [
  "codes-iso-639",
  "schemars 1.2.1",
@@ -4002,7 +4012,7 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 [[package]]
 name = "onnx"
 version = "0.1.0"
-source = "git+https://github.com/fastrepl/anarlog?rev=10dca7e1b24058f1bd9cba4107ac1fd5588c974c#10dca7e1b24058f1bd9cba4107ac1fd5588c974c"
+source = "git+https://github.com/fastrepl/anarlog?rev=53e3624ba499fbd0900de66c75a01f23877cc276#53e3624ba499fbd0900de66c75a01f23877cc276"
 dependencies = [
  "ndarray",
  "ort",
@@ -4687,7 +4697,7 @@ checksum = "e0c5ccf5294c6ccd63a74f1565028353830a9c2f5eb0c682c355c471726a6e3f"
 [[package]]
 name = "pyannote-local"
 version = "0.1.0"
-source = "git+https://github.com/fastrepl/anarlog?rev=10dca7e1b24058f1bd9cba4107ac1fd5588c974c#10dca7e1b24058f1bd9cba4107ac1fd5588c974c"
+source = "git+https://github.com/fastrepl/anarlog?rev=53e3624ba499fbd0900de66c75a01f23877cc276#53e3624ba499fbd0900de66c75a01f23877cc276"
 dependencies = [
  "embedding",
  "onnx",
@@ -4950,17 +4960,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "recordem-ax"
+version = "0.1.0"
+dependencies = [
+ "objc2-app-kit",
+ "objc2-foundation",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "recordem-recorder"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "audio",
  "audio-actual",
+ "audio-device",
  "base64 0.22.1",
  "block2",
  "chrono",
  "cidre",
  "detect",
+ "device-monitor",
  "dirs 6.0.0",
  "futures-util",
  "hound",
@@ -4969,6 +4991,9 @@ dependencies = [
  "objc2-av-foundation",
  "pyannote-local",
  "rand 0.9.4",
+ "recordem-ax",
+ "recordem-scrape",
+ "recordem-timeline",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -4984,6 +5009,24 @@ dependencies = [
  "tokio-util",
  "uuid",
  "whisper-rs",
+]
+
+[[package]]
+name = "recordem-scrape"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "recordem-ax",
+ "regex",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "recordem-timeline"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -5153,7 +5196,7 @@ dependencies = [
 [[package]]
 name = "resampler"
 version = "0.0.1"
-source = "git+https://github.com/fastrepl/anarlog?rev=10dca7e1b24058f1bd9cba4107ac1fd5588c974c#10dca7e1b24058f1bd9cba4107ac1fd5588c974c"
+source = "git+https://github.com/fastrepl/anarlog?rev=53e3624ba499fbd0900de66c75a01f23877cc276#53e3624ba499fbd0900de66c75a01f23877cc276"
 dependencies = [
  "audio-interface",
  "audioadapter-buffers",
@@ -5301,9 +5344,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.38"
+version = "0.23.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69f9466fb2c14ea04357e91413efb882e2a6d4a406e625449bc0a5d360d53a21"
+checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
 dependencies = [
  "once_cell",
  "ring",
@@ -6664,7 +6707,7 @@ dependencies = [
 [[package]]
 name = "tcc"
 version = "0.1.0"
-source = "git+https://github.com/fastrepl/anarlog?rev=10dca7e1b24058f1bd9cba4107ac1fd5588c974c#10dca7e1b24058f1bd9cba4107ac1fd5588c974c"
+source = "git+https://github.com/fastrepl/anarlog?rev=53e3624ba499fbd0900de66c75a01f23877cc276#53e3624ba499fbd0900de66c75a01f23877cc276"
 dependencies = [
  "swift-rs 1.0.7 (git+https://github.com/Brendonovich/swift-rs?rev=41a1605)",
 ]
@@ -7343,7 +7386,7 @@ dependencies = [
 [[package]]
 name = "voiceprint"
 version = "0.1.0"
-source = "git+https://github.com/fastrepl/anarlog?rev=10dca7e1b24058f1bd9cba4107ac1fd5588c974c#10dca7e1b24058f1bd9cba4107ac1fd5588c974c"
+source = "git+https://github.com/fastrepl/anarlog?rev=53e3624ba499fbd0900de66c75a01f23877cc276#53e3624ba499fbd0900de66c75a01f23877cc276"
 
 [[package]]
 name = "vorbis_rs"
@@ -7701,7 +7744,7 @@ dependencies = [
 [[package]]
 name = "whisper"
 version = "0.1.0"
-source = "git+https://github.com/fastrepl/anarlog?rev=10dca7e1b24058f1bd9cba4107ac1fd5588c974c#10dca7e1b24058f1bd9cba4107ac1fd5588c974c"
+source = "git+https://github.com/fastrepl/anarlog?rev=53e3624ba499fbd0900de66c75a01f23877cc276#53e3624ba499fbd0900de66c75a01f23877cc276"
 dependencies = [
  "strum",
 ]

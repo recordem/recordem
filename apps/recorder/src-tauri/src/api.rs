@@ -143,6 +143,9 @@ pub struct LiveBatch<'a> {
     /// Who is in the call now, when it changed since the last batch the API took.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub participants: Option<&'a Participants>,
+    /// Names for the live voices, when one appeared since the last batch the API took.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speakers: Option<&'a [SpeakerName]>,
     /// The last batch: the recording ended.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub ended: bool,

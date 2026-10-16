@@ -1,23 +1,28 @@
-/* The call prompt: a small card in the screen's top-right corner, like a notification, over a transparent window
-   (the margin around it is where its shadow falls). */
+/* The call prompt: a card in the screen's top-right corner, in a notification's look. The window is the card: macOS
+   draws its translucent material, rounded corners and shadow (show_prompt), so the page itself stays transparent. */
 html, body.prompt { background: transparent; height: 100%; }
-body.prompt { display: block; }
-body.prompt { padding: 8px 10px 14px; overflow: hidden; }
-.pill { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 10px 10px 10px 12px;
-        box-shadow: 0 6px 20px rgba(0, 0, 0, .18), 0 1px 3px rgba(0, 0, 0, .08); display: flex; gap: 10px; align-items: center;
+body.prompt { display: block; overflow: hidden; }
+.pill { height: 100%; box-sizing: border-box; padding: 10px 10px 10px 12px; display: flex; gap: 10px; align-items: center;
         animation: in .22s ease-out; }
-@keyframes in { from { opacity: 0; transform: translateY(-6px); } }
-.pill .ic { width: 30px; height: 30px; border-radius: 8px; background: color-mix(in srgb, var(--rec) 12%, transparent);
-            display: grid; place-items: center; flex-shrink: 0; }
-.pill .ic i { width: 10px; height: 10px; border-radius: 50%; background: var(--rec); }
+@keyframes in { from { opacity: 0; transform: translateY(-4px); } }
+.pill .ic { width: 34px; height: 34px; flex-shrink: 0; display: grid; place-items: center; position: relative; }
+.pill .ic img { width: 34px; height: 34px; }
+.pill .ic i { width: 30px; height: 30px; border-radius: 8px; background: color-mix(in srgb, var(--rec) 14%, transparent); position: relative; }
+.pill .ic i::after { content: ""; position: absolute; inset: 10px; border-radius: 50%; background: var(--rec); }
+/* The recorder's mark on the call app's icon: which recorder is asking. */
+.pill .ic b { position: absolute; right: -3px; bottom: -3px; width: 12px; height: 12px; border-radius: 50%; background: var(--rec);
+              box-shadow: 0 0 0 2px var(--badge-ring); }
 .pill .tx { flex: 1; min-width: 0; }
 .pill .t1 { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pill .t1 strong { color: var(--ink); font-weight: 600; }
 .pill .t2 { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pill .t3 { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pill .t3 a { cursor: pointer; }
 .pill .go { appearance: none; border: 0; border-radius: 999px; background: var(--rec); color: #fff; font: inherit; font-size: 13px;
             font-weight: 600; padding: 7px 12px; cursor: pointer; flex-shrink: 0; }
-.pill .go:hover:not(:disabled) { background: #b91c1c; }
+.pill .go:hover:not(:disabled) { filter: brightness(.9); }
 .pill .go:disabled { opacity: .5; cursor: default; }
 .pill .x { appearance: none; border: 0; background: transparent; color: var(--muted); font-size: 15px; line-height: 1; cursor: pointer;
            padding: 4px; align-self: flex-start; margin: -4px -4px 0 -6px; }
+:root { --badge-ring: rgba(255, 255, 255, .9); }
+@media (prefers-color-scheme: dark) { :root { --badge-ring: rgba(40, 40, 42, .9); } }

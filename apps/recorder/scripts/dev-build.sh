@@ -2,6 +2,11 @@
 # Dev build on a Mac, also over SSH: builds Recordem.app, signs it with a local dev certificate, and installs it in
 # /Applications (unless a recording is in progress). A stable signature is what makes macOS keep the permissions
 # (Microphone, System Audio, Accessibility, Automation) across rebuilds; an ad-hoc one changes with every build.
+# It is "Recordem Dev" (dev.recordem.recorder.dev), an app of its own next to the release: macOS ties each permission to
+# one signer, so a dev build installed over the release would leave the release's permissions pointing at the wrong
+# certificate (on in System Settings, refused in practice). It keeps its own ~/Library/Application Support/Recordem Dev
+# (config, sign-in, recordings) and links (recordem-dev://), so it points at the RECORDEM_*_URL server given here while
+# the release keeps its own. The release is quit while the dev build runs: both would record the same call.
 #
 # Once per Mac: `scripts/dev-build.sh --setup` makes a self-signed "Recordem Dev" code-signing certificate in a keychain
 # of its own (~/Library/Keychains/recordem-dev.keychain-db, password below: it guards nothing but this certificate),
@@ -39,14 +44,17 @@ if [ -f "$KC" ]; then
 fi
 [ "$IDENTITY" = "-" ] && echo "! no dev certificate (run --setup): ad-hoc signature, permissions reset on every build" >&2
 ../parakeet/build.sh   # the Parakeet engine's helper, bundled next to the app's executable
-APPLE_SIGNING_IDENTITY="$IDENTITY" cargo tauri build --bundles app
+RECORDEM_APP="Recordem Dev" RECORDEM_SCHEME=recordem-dev APPLE_SIGNING_IDENTITY="$IDENTITY" cargo tauri build --bundles app \
+  --config '{"productName": "Recordem Dev", "identifier": "dev.recordem.recorder.dev", "bundle": {"icon": ["icons/dev/32x32.png", "icons/dev/128x128.png", "icons/dev/128x128@2x.png", "icons/dev/icon.icns"]}, "plugins": {"deep-link": {"desktop": {"schemes": ["recordem-dev"]}}}}'
 
-REC="$HOME/Library/Application Support/Recordem/recordings"
-for d in "$REC"/*/; do
-  [ -d "$d" ] && [ ! -f "$d/sent" ] && { echo "a recording is in progress or unsent: not installing (target/release/bundle/macos/Recordem.app)"; exit 0; }
-done
-osascript -e 'quit app "Recordem"' 2>/dev/null || true
-sleep 2; pkill -f "/Applications/Recordem.app" || true
-rm -rf /Applications/Recordem.app && cp -R target/release/bundle/macos/Recordem.app /Applications/
-open -a /Applications/Recordem.app
-echo "✓ installed /Applications/Recordem.app ($IDENTITY)"
+REC="$HOME/Library/Application Support/Recordem Dev/recordings"
+# A recording in progress writes its WAVs every 100 ms; one left unsent (offline, a crash) is not in progress.
+if [ -d "$REC" ] && [ -n "$(find "$REC" -name '*.wav' -mtime -15s 2>/dev/null | head -1)" ]; then
+  echo "a recording is in progress: not installing (target/release/bundle/macos/Recordem Dev.app)"; exit 0
+fi
+APP="/Applications/Recordem Dev.app"
+for a in Recordem "Recordem Dev"; do osascript -e "quit app \"$a\"" 2>/dev/null || true; done
+sleep 2; pkill -f "/Applications/Recordem.app" || true; pkill -f "$APP" || true
+rm -rf "$APP" && cp -R "target/release/bundle/macos/Recordem Dev.app" /Applications/
+open -a "$APP"
+echo "✓ installed $APP ($IDENTITY); the release is quit — open it again when done"

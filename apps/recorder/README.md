@@ -47,13 +47,17 @@ paraphrases, Parakeet is verbatim and slips into English).
 cargo install tauri-cli --version "^2" --locked     # once; cmake on PATH (whisper.cpp)
 apps/recorder/scripts/dev-build.sh --setup          # once per Mac: a "Recordem Dev" signing certificate
 RECORDEM_API_URL=http://<server>:39411 RECORDEM_AUTH_URL=http://<server>:39410 RECORDEM_WEB_URL=https://<server>:39412 \
-  apps/recorder/scripts/dev-build.sh                # build, sign, install in /Applications (not mid-recording)
+  apps/recorder/scripts/dev-build.sh                # build, sign, install "Recordem Dev" in /Applications (not mid-recording)
 ```
 
 macOS ties permissions to the app's signature. An ad-hoc signature changes with every build, so Microphone, System
 Audio, Accessibility and Automation would be asked again (or silently fail) after each rebuild; the dev certificate
-keeps them. It lives in a keychain of its own, so signing works over SSH too. Permissions on first run: Microphone,
-System Audio Recording, notifications, and optionally Accessibility (reads the Meet window title, which carries the
+keeps them. It lives in a keychain of its own, so signing works over SSH too. The dev build is its own app,
+"Recordem Dev" (`dev.recordem.recorder.dev`), because each permission is tied to one signer: installed over the release
+it would leave the release's grants on in System Settings but refused in practice (`tccutil reset` + grant again fixes
+it). It also keeps its own folder (`~/Library/Application Support/Recordem Dev`: config, sign-in, recordings) and
+links (`recordem-dev://`), so it talks to the server given at build time while the release keeps its own; quit one
+before using the other (both would record the same call). Permissions on first run: Microphone, System Audio Recording, notifications, and optionally Accessibility (reads the Meet window title, which carries the
 call code; without it the match is by time only). Releases: `scripts/release.sh`.
 
 ## Where things live on the Mac

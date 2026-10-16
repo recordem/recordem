@@ -97,6 +97,14 @@
           "participants": {
             "$ref": "#/components/schemas/Participants"
           },
+          "speakers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SpeakerName"
+            },
+            "maxItems": 200,
+            "description": "Names for the live voices so far (who the call app showed speaking during each line); sent when they change. Names set by hand are kept"
+          },
           "ended": {
             "type": "boolean",
             "description": "The last batch: the recording ended"
@@ -204,6 +212,45 @@
         "required": [
           "name",
           "speaking"
+        ]
+      },
+      "SpeakerName": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 40,
+            "description": "A voice of the transcript: \"system:1\", \"system:2\", …",
+            "example": "system:1"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "platform",
+              "llm",
+              "user"
+            ],
+            "description": "platform: the call app showed them speaking; llm: inferred from what was said; user: set by hand"
+          },
+          "confidence": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1,
+            "description": "How sure the source is, 0–1; none for user"
+          }
+        },
+        "required": [
+          "label",
+          "name",
+          "source"
         ]
       },
       "Recording": {
@@ -500,45 +547,6 @@
           "model",
           "segments",
           "speakers"
-        ]
-      },
-      "SpeakerName": {
-        "type": "object",
-        "properties": {
-          "label": {
-            "type": "string",
-            "maxLength": 40,
-            "description": "A voice of the transcript: \"system:1\", \"system:2\", …",
-            "example": "system:1"
-          },
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200
-          },
-          "source": {
-            "type": "string",
-            "enum": [
-              "platform",
-              "llm",
-              "user"
-            ],
-            "description": "platform: the call app showed them speaking; llm: inferred from what was said; user: set by hand"
-          },
-          "confidence": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "minimum": 0,
-            "maximum": 1,
-            "description": "How sure the source is, 0–1; none for user"
-          }
-        },
-        "required": [
-          "label",
-          "name",
-          "source"
         ]
       },
       "Match": {

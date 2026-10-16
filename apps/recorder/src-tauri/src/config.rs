@@ -1,4 +1,4 @@
-// Where the recorder keeps its state: ~/Library/Application Support/Recordem/
+// Where the recorder keeps its state: ~/Library/Application Support/Recordem/ ("Recordem Dev/" for a dev build)
 //   config.json            the server's addresses, the sign-in tokens, languages, call behaviour, mic, vocabulary
 //   models/                Whisper and VAD models (downloaded once)
 //   recordings/<id>/       one call: mic.wav, system.wav, mic_hq.wav, call.m4a, voice.m4a, meta.json, transcript.json;
@@ -104,8 +104,14 @@ fn yes() -> bool {
     true
 }
 
+/// Which app this is: "Recordem", or "Recordem Dev" from scripts/dev-build.sh. The dev build is an app of its own
+/// next to the release: its own folder (config, sign-in, recordings) and its own links (recordem-dev://), so testing
+/// local code never touches the release's account or data.
+pub const APP: &str = match option_env!("RECORDEM_APP") { Some(a) => a, None => "Recordem" };
+pub const SCHEME: &str = match option_env!("RECORDEM_SCHEME") { Some(s) => s, None => "recordem" };
+
 pub fn root() -> PathBuf {
-    dirs::data_dir().expect("no data dir").join("Recordem")
+    dirs::data_dir().expect("no data dir").join(APP)
 }
 
 pub fn recordings_dir() -> PathBuf {

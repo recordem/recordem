@@ -6,9 +6,14 @@
   --primary: #1d1d1f; --primary-ink: #ffffff; --rec: #d93025; --rec-soft: #fdecea; --ok: #1e8e3e; --warn: #b45309;
   color-scheme: light dark;
 }
+/* A dev build (scripts/dev-build.sh) in violet where the release is red, so the two never get mixed up. */
+:root[data-flavor="dev"] { --rec: #7c3aed; --rec-soft: #f1eafe; }
+.tag { display: inline-block; font-size: 9.5px; font-weight: 700; letter-spacing: .04em; color: #fff; background: var(--rec);
+       border-radius: 4px; padding: 1px 4px; margin-left: 6px; vertical-align: 1px; }
 @media (prefers-color-scheme: dark) {
   :root { --bg: #1b1b1d; --card: #252527; --ink: #f2f2f2; --muted: #9a9a9f; --line: #333336; --soft: #2e2e31;
           --primary: #f2f2f2; --primary-ink: #1b1b1d; --rec: #ff5b4f; --rec-soft: #3a1f1d; --ok: #4ade80; --warn: #f5a524; }
+  :root[data-flavor="dev"] { --rec: #a78bfa; --rec-soft: #2a2140; }
 }
 * { box-sizing: border-box; }
 /* One scrolling area: the window never scrolls, `main` does. */

@@ -124,14 +124,22 @@ pub fn watch(bundle: String, dir: PathBuf, started: Instant, stop: CancellationT
 }
 
 /// speakers.jsonl as timeline samples: who the app showed speaking, minus the person on this Mac (their voice is the
-/// mic channel, never a "system" voice).
+/// mic channel, never a "system" voice). Lines are written on a change and as a heartbeat, so each holds until the
+/// next one; a time the call couldn't be read holds nobody. The person on this Mac is who the app says ("You" in
+/// Meet's participant list, only while it is open), or else the name they signed in to Recordem with.
 fn samples(lines: &[Line]) -> Vec<Sample> {
-    let me = lines.iter().rev().find_map(|l| l.self_name.clone());
-    lines
+    let me = lines.iter().rev().find_map(|l| l.self_name.clone()).or_else(|| {
+        let account = crate::config::load().account;
+        account.split(" (").next().map(str::trim).filter(|n| !n.is_empty()).map(String::from)
+    });
+    let s: Vec<Sample> = lines
         .iter()
-        .filter(|l| l.visible)
-        .map(|l| Sample { t_ms: l.t_ms, speaking: l.speaking.iter().filter(|n| Some(*n) != me.as_ref()).cloned().collect() })
-        .collect()
+        .map(|l| Sample {
+            t_ms: l.t_ms,
+            speaking: if l.visible { l.speaking.iter().filter(|n| Some(*n) != me.as_ref()).cloned().collect() } else { vec![] },
+        })
+        .collect();
+    recordem_timeline::held(&s, 250, HEARTBEAT.as_millis() as u64 + 1_000)
 }
 
 pub fn read(dir: &Path) -> Vec<Line> {
@@ -150,6 +158,41 @@ pub fn name_voices(lines: &[Line], segments: &[Segment]) -> Vec<Assignment> {
         .collect();
     let opts = Options::default();
     recordem_timeline::assign(&turns, &recordem_timeline::intervals(&samples(lines), &opts), &opts)
+}
+
+/// While the call goes on, each line of the other side is named after whoever the call app showed speaking during it
+/// (`name_voices`' rule, for one line): "Ana Souza" becomes "system:1", the next name "system:2", by first appearance.
+/// A line nobody clearly spoke stays unnamed. The pass after the call replaces all of it with the diarized voices.
+#[derive(Default)]
+pub struct LiveVoices {
+    names: Vec<String>,
+}
+
+impl LiveVoices {
+    /// Names the system lines of `segs` that have no speaker yet. True when a name appeared that wasn't there before.
+    pub fn label(&mut self, lines: &[Line], segs: &mut [Segment]) -> bool {
+        let opts = Options::default();
+        let intervals = recordem_timeline::intervals(&samples(lines), &opts);
+        let before = self.names.len();
+        for s in segs.iter_mut().filter(|s| s.channel == "system" && s.speaker.is_none()) {
+            let turn = Turn { label: String::new(), start_ms: s.start_ms, end_ms: s.end_ms };
+            let Some(a) = recordem_timeline::assign(&[turn], &intervals, &opts).into_iter().next() else { continue };
+            let k = self.names.iter().position(|n| *n == a.name).unwrap_or_else(|| {
+                self.names.push(a.name.clone());
+                self.names.len() - 1
+            });
+            s.speaker = Some(format!("system:{}", k + 1));
+        }
+        self.names.len() > before
+    }
+
+    pub fn speakers(&self) -> Vec<SpeakerName> {
+        self.names
+            .iter()
+            .enumerate()
+            .map(|(k, n)| SpeakerName { label: format!("system:{}", k + 1), name: n.clone(), source: "platform".into(), confidence: None })
+            .collect()
+    }
 }
 
 /// The names for the transcript; how clear the overlap was is the confidence.
@@ -182,6 +225,47 @@ mod tests {
         let names: std::collections::HashMap<_, _> = names(&name_voices(&lines, &[seg("system:1", 300, 9_800), seg("system:2", 10_300, 19_800)])).into_iter().map(|n| (n.label, n.name)).collect();
         assert_eq!(names.get("system:1").map(String::as_str), Some("Ana Souza"));
         assert_eq!(names.get("system:2").map(String::as_str), Some("Carla Dias"));
+    }
+
+    #[test]
+    fn live_lines_are_named_by_first_appearance() {
+        let mut lines = vec![];
+        for t in (0..20_000).step_by(500) {
+            let who = if t < 10_000 { "Carla Dias" } else { "Ana Souza" };
+            lines.push(Line { t_ms: t, visible: t < 15_000, speaking: vec![who.into()], people: vec![], muted: vec![], self_name: None });
+        }
+        let unnamed = |s, e| Segment { speaker: None, ..seg("", s, e) };
+        let mut segs = vec![unnamed(1_000, 4_000), unnamed(10_500, 13_000), unnamed(5_000, 8_000), unnamed(16_000, 19_000)];
+        let mut v = LiveVoices::default();
+        assert!(v.label(&lines, &mut segs));
+        let got: Vec<_> = segs.iter().map(|s| s.speaker.as_deref()).collect();
+        // The call couldn't be read after 15 s: that line stays unnamed.
+        assert_eq!(got, [Some("system:1"), Some("system:2"), Some("system:1"), None]);
+        assert_eq!(v.speakers().iter().map(|n| n.name.as_str()).collect::<Vec<_>>(), ["Carla Dias", "Ana Souza"]);
+        assert!(!v.label(&lines, &mut segs));
+    }
+
+    /// A recorded call's names, again: `RECORDEM_CALL_DIR=<recording folder> cargo test --release -- --ignored
+    /// names_of_a_call --nocapture` (speakers.jsonl and transcript.json from the recorder's folder).
+    #[test]
+    #[ignore]
+    fn names_of_a_call() {
+        let dir = std::path::PathBuf::from(std::env::var("RECORDEM_CALL_DIR").expect("RECORDEM_CALL_DIR"));
+        let t: crate::api::Transcript = serde_json::from_slice(&std::fs::read(dir.join("transcript.json")).unwrap()).unwrap();
+        let lines = read(&dir);
+        let opts = Options::default();
+        let intervals = recordem_timeline::intervals(&samples(&lines), &opts);
+        let mut by: std::collections::BTreeMap<(String, String), u64> = Default::default();
+        for s in t.segments.iter().filter(|s| s.channel == "system") {
+            for iv in &intervals {
+                let o = s.end_ms.min(iv.end_ms).saturating_sub(s.start_ms.max(iv.start_ms));
+                *by.entry((s.speaker.clone().unwrap_or_default(), iv.name.clone())).or_default() += o;
+            }
+        }
+        eprintln!("overlap: {by:?}");
+        for a in name_voices(&lines, &t.segments) {
+            eprintln!("{} {} share {:.2} overlap {} ms", a.label, a.name, a.share, a.overlap_ms);
+        }
     }
 
     #[test]

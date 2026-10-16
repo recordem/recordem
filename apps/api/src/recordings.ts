@@ -187,6 +187,18 @@ export function mount(app: OpenAPIHono<Env>, db: Db) {
     await db.insert(transcripts).values({ recordingId: r.id, workspaceId: a.workspace, status: "live", segments })
       .onConflictDoUpdate({ target: transcripts.recordingId, set: { segments, updatedAt: new Date() } });
     if (b.segments.length) await publish(a.workspace, { type: "transcript.live", ...ev, data: { from: b.from, segments: b.segments } });
+    // Who speaks, as the call app showed it: names set by hand win, as in the final transcript.
+    if (b.speakers) {
+      const u = await db.transaction(async (tx) => {
+        const [prev] = await tx.select({ speakers: transcripts.speakers }).from(transcripts).where(eq(transcripts.recordingId, r.id)).for("update");
+        const byHand = (prev?.speakers ?? []).filter((s) => s.source === "user");
+        const found = b.speakers!.filter((s) => s.source !== "user" && !byHand.some((h) => h.label === s.label));
+        const [row] = await tx.update(transcripts).set({ speakers: [...byHand, ...found], updatedAt: new Date() })
+          .where(eq(transcripts.recordingId, r.id)).returning();
+        return row;
+      });
+      if (u) await publish(a.workspace, { type: "transcript.speakers", ...ev, data: { speakers: u.speakers } });
+    }
     if (b.ended && !r.endedAt) {
       await db.update(recordings).set({ endedAt: new Date() }).where(eq(recordings.id, r.id));
       await publish(a.workspace, { type: "recording.ended", ...ev, data: {} });

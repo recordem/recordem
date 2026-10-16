@@ -4,7 +4,7 @@
 // the call (transcribe::run) replaces it. Best effort: nothing here can stop or spoil the recording.
 use crate::api::{self, LiveBatch, Participants, Segment};
 use crate::config::Config;
-use crate::participants::Latest;
+use crate::participants::{Latest, LiveVoices};
 use std::sync::mpsc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
@@ -108,9 +108,13 @@ pub fn transcribe(frames: mpsc::Receiver<Frame>, out: tokio::sync::mpsc::Unbound
 /// Sends the segments as they come, in batches. The API answers how many it holds, so a batch that failed (offline,
 /// the API restarting) is sent again from there and nothing is duplicated. The first batch goes out empty, right away.
 /// An answer with `stop` ("Stop recording" in the portal) stops the recording. When `segments` closes (the recording
-/// ended), what is left goes in a last batch marked `ended`, tried once.
-pub async fn send(cfg: Config, id: String, mut segments: tokio::sync::mpsc::UnboundedReceiver<Vec<Segment>>, stop: CancellationToken, people: Latest) {
+/// ended), what is left goes in a last batch marked `ended`, tried once. The other side's lines go out named after who
+/// the call app showed speaking (speakers.jsonl in `dir`, participants.rs), with the names when a new one appears.
+pub async fn send(cfg: Config, id: String, mut segments: tokio::sync::mpsc::UnboundedReceiver<Vec<Segment>>, stop: CancellationToken, people: Latest, dir: std::path::PathBuf) {
     let mut all: Vec<Segment> = vec![];
+    let mut voices = LiveVoices::default();
+    let mut named = 0usize; // lines given a name (or found to have none) so far
+    let mut new_names = false; // a name the API hasn't taken yet
     let mut sent: Option<Participants> = None; // who the API was last told is in the call
     let mut held = 0usize; // how many the API has
     let mut open = true;
@@ -133,13 +137,19 @@ pub async fn send(cfg: Config, id: String, mut segments: tokio::sync::mpsc::Unbo
         // Who is in the call goes along only when it changed (when it was read is no change).
         let now = people.lock().unwrap().as_ref().map(|l| l.participants());
         let changed = now.as_ref().filter(|n| sent.as_ref().is_none_or(|s| Participants { t_ms: n.t_ms, ..s.clone() } != **n));
-        let batch = LiveBatch { from: held, segments: &all[held..], participants: changed, ended: !open };
+        if named < all.len() {
+            new_names |= voices.label(&crate::participants::read(&dir), &mut all[named..]);
+            named = all.len();
+        }
+        let speakers = new_names.then(|| voices.speakers());
+        let batch = LiveBatch { from: held, segments: &all[held..], participants: changed, speakers: speakers.as_deref(), ended: !open };
         match api::live(&cfg, &id, &batch).await {
             Ok(ack) => {
                 held = ack.n.min(all.len());
                 if changed.is_some() {
                     sent = now.clone();
                 }
+                new_names = false;
                 if ack.stop && open {
                     stop.cancel();
                 }
