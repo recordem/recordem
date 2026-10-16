@@ -6,6 +6,7 @@ import { and, desc, eq, gte, lt, or } from "drizzle-orm";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import { authenticate, requireScopes, type Env } from "./auth";
+import { serveProfiles } from "./profiles";
 import { mount } from "./recordings";
 import { mountWebhooks } from "./webhooks";
 import { files } from "./storage";
@@ -26,9 +27,12 @@ app.use("*", cors({ origin: ORIGINS, allowHeaders: ["authorization", "content-ty
 app.get("/healthz", (c) => c.text("ok"));
 app.get("/files/*", (c) => files(c.req.raw));
 app.get("/v1/openapi.json", (c) => c.json(document(AUTH_URL, API_URL)));
-app.use("/v1/*", async (c, next) => (c.req.path === "/v1/openapi.json" ? next() : authenticate({ authUrl: AUTH_URL, audience: API_URL })(c, next)));
+app.get(routes.readerProfiles.path, (c) => serveProfiles(c.req.raw));
+// Public routes (the contract marks them `x-public`) take no token; every other /v1 route does.
+const PUBLIC = new Set(["/v1/openapi.json", ...Object.values(routes).filter((r) => "x-public" in r).map((r) => r.path)]);
+app.use("/v1/*", async (c, next) => (PUBLIC.has(c.req.path) ? next() : authenticate({ authUrl: AUTH_URL, audience: API_URL })(c, next)));
 // Each route requires the scopes the contract declares for it (per method: GET and PUT of a track differ).
-for (const r of Object.values(routes)) app.on(r.method.toUpperCase(), r.path.replace(/{(\w+)}/g, ":$1"), requireScopes(r["x-scopes"], r["x-upload"]));
+for (const r of Object.values(routes).filter((r) => !("x-public" in r))) app.on(r.method.toUpperCase(), r.path.replace(/{(\w+)}/g, ":$1"), requireScopes(r["x-scopes"], r["x-upload"]));
 
 app.openapi(routes.getMe, (c) => {
   const a = c.get("actor");

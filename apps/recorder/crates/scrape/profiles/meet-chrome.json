@@ -1,12 +1,21 @@
 {
   "id": "meet-chrome",
-  "revision": 5,
+  "revision": 6,
   "apps": [
     "com.google.Chrome",
     "company.thebrowser.Browser",
     "com.brave.Browser",
     "com.microsoft.edgemac"
   ],
+  "platform": "google_meet",
+  "links": [
+    "^https://meet\\.google\\.com/[a-z]{3}-[a-z]{4}-[a-z]{3}"
+  ],
+  "self_mic": {
+    "in": "window",
+    "muted": "(?i)^(turn on microphone|ativar microfone|activar micrófono)",
+    "open": "(?i)^(turn off microphone|desativar microfone|desactivar micrófono)"
+  },
   "window": [
     "matches",
     "title",

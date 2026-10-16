@@ -186,6 +186,14 @@ export function mount(app: OpenAPIHono<Env>, db: Db) {
     const [t] = await db.select().from(transcripts).where(eq(transcripts.recordingId, r.id));
     if (t?.status === "final") return c.json({ n: b.from + b.segments.length, stop: false }, 200);
     const ev = { meeting_id: r.meetingId, recording_id: r.id };
+    // A reader profile that stopped matching: kept on the recording (the last 200) and logged, to fix the profile.
+    if (b.reader?.length) {
+      for (const x of b.reader) console.warn(`reader: ${x.profile} r${x.revision}${x.app_version ? ` (app ${x.app_version})` : ""} ${JSON.stringify(x.event)} recording ${r.id}`);
+      const all = sql`coalesce(${recordings.reader}, '[]'::jsonb) || ${JSON.stringify(b.reader)}::jsonb`;
+      await db.update(recordings).set({
+        reader: sql`(select coalesce(jsonb_agg(e order by i), '[]'::jsonb) from (select e, i from jsonb_array_elements(${all}) with ordinality as x(e, i) order by i desc limit 200) last)`,
+      }).where(eq(recordings.id, r.id));
+    }
     if (b.participants) {
       await db.update(recordings).set({ participants: b.participants }).where(eq(recordings.id, r.id));
       await publish(a.workspace, { type: "participants.updated", ...ev, data: b.participants });

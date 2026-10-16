@@ -116,6 +116,10 @@ export const LiveBatch = z.object({
   from: z.number().int().min(0).openapi({ description: "Index of the first segment in this batch" }),
   segments: z.array(Segment).max(2_000),
   participants: Participants.optional().openapi({ description: "Who is in the call now; sent when it changes" }),
+  reader: z.array(z.object({
+    t_ms: z.number().int().min(0), profile: z.string().max(60), revision: z.number().int(), app_version: z.string().max(40).nullish(),
+    event: z.record(z.string(), z.unknown()).openapi({ description: 'e.g. {"event": "report", "issue": "no_participants"}' }),
+  })).max(100).optional().openapi({ description: "What went wrong reading the call app (a reader profile that stopped matching), since the last batch taken" }),
   speakers: z.array(SpeakerName).max(200).optional().openapi({ description: "Names for the live voices so far (who the call app showed speaking during each line); sent when they change. Names set by hand are kept" }),
   ended: z.boolean().optional().openapi({ description: "The last batch: the recording ended" }),
 }).openapi("LiveBatch");
@@ -182,3 +186,13 @@ export const CreateWebhook = z.object({ url: WebhookEndpoint.shape.url, events: 
 export const CreatedWebhook = WebhookEndpoint.extend({
   secret: z.string().openapi({ description: "Shown once. Each delivery carries Recordem-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of `${t}.${raw body}` with this secret>; reject a t older than 5 minutes" }),
 }).openapi("CreatedWebhook");
+
+/** How a recorder reads a call app's window: one per app (and app version), in the format of apps/recorder's
+ * crates/scrape. Data, so a redesign of Meet or Zoom is fixed on the server without a new recorder. */
+export const ReaderProfiles = z.object({
+  profiles: z.array(z.object({
+    id: z.string().openapi({ example: "meet-chrome" }),
+    revision: z.number().int().openapi({ description: "Bumped on every change; a recorder keeps the higher of its own and this" }),
+    apps: z.array(z.string()).openapi({ description: "Bundle ids it reads" }),
+  }).passthrough()),
+}).openapi("ReaderProfiles");

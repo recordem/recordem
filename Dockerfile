@@ -12,6 +12,7 @@ COPY packages/db/package.json packages/db/
 COPY packages/sdk/package.json packages/sdk/
 COPY apps/auth/package.json apps/auth/
 COPY apps/api/package.json apps/api/
+COPY apps/worker/package.json apps/worker/
 COPY apps/web/package.json apps/web/
 RUN bun install --frozen-lockfile
 COPY packages packages
@@ -31,6 +32,9 @@ RUN bun install --frozen-lockfile
 COPY packages packages
 COPY apps/auth apps/auth
 COPY apps/api apps/api
+COPY apps/worker apps/worker
+# The reader profiles the api serves to recorders (GET /v1/recorder/profiles).
+COPY apps/recorder/crates/scrape/profiles apps/recorder/crates/scrape/profiles
 COPY apps/web/serve.ts apps/web/
 COPY --from=web /app/apps/web/dist apps/web/dist
 ENV NODE_ENV=production

@@ -6,7 +6,8 @@ mod profile;
 mod selector;
 
 pub use health::{Event, Health, Issue, Monitor, MonitorOptions, Status};
-pub use profile::{Field, Participant, Profile, Roster, RosterEntry, Scrape, Versions, compare_versions};
+pub use profile::{Field, MicPlace, Participant, Profile, Roster, RosterEntry, Scrape, SelfMic, Versions, compare_versions};
+pub use regex::Regex;
 pub use selector::Selector;
 
 use serde::Deserialize;
@@ -22,7 +23,13 @@ struct Document {
 
 impl Profiles {
     pub fn builtin() -> Profiles {
-        let all = [include_str!("../profiles/zoom.json"), include_str!("../profiles/meet-chrome.json")];
+        let all = [
+            include_str!("../profiles/zoom.json"),
+            include_str!("../profiles/meet-chrome.json"),
+            include_str!("../profiles/zoom-web.json"),
+            include_str!("../profiles/teams-web.json"),
+            include_str!("../profiles/meet-safari.json"),
+        ];
         Profiles(all.iter().map(|j| Profile::from_json(j).expect("built-in profile")).collect())
     }
 

@@ -30,9 +30,11 @@ export const recordings = pgTable("recordings", {
   ref: text("ref"),                                                           // the creator's own id for it, as given
   metadata: jsonb("metadata").$type<Record<string, string>>().notNull().default({}),
   config: jsonb("config").$type<RecordingConfig>(),                           // what the creator asked to capture
+  reader: jsonb("reader").$type<ReaderReport[]>().notNull().default([]),      // reader profile issues the recorder hit
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index("recordings_meeting").on(t.meetingId), index("recordings_workspace_ref").on(t.workspaceId, t.ref)]);
 
+export type ReaderReport = { t_ms: number; profile: string; revision: number; app_version?: string | null; event: Record<string, unknown> };
 export type RecordingConfig = { languages?: string[]; live?: boolean; tracks?: ("mix" | "mic_hq")[]; speakers?: boolean };
 
 export type Segment = {

@@ -100,7 +100,12 @@ pub async fn record(dir: &Path, mic_device: Option<String>, voice_hq: bool, stop
                     if muted.load(Ordering::Relaxed) {
                         m = vec![0.0; m.len()].into();
                     }
-                    peak_sys = fr.raw_speaker.iter().fold(peak_sys, |a, x| a.max(x.abs()));
+                    let loud = fr.raw_speaker.iter().fold(0f32, |a, x| a.max(x.abs()));
+                    peak_sys = peak_sys.max(loud);
+                    if loud > 0.02 {
+                        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
+                        crate::participants::REMOTE_AUDIBLE_AT.store(now, Ordering::Relaxed);
+                    }
                     write(&mut mic, &m)?;
                     write(&mut system, &fr.raw_speaker)?;
                     if let Some(tx) = &live {

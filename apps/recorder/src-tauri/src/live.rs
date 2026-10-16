@@ -115,6 +115,7 @@ pub async fn send(cfg: Config, id: String, mut segments: tokio::sync::mpsc::Unbo
     let mut voices = LiveVoices::default();
     let mut named = 0usize; // lines given a name (or found to have none) so far
     let mut new_names = false; // a name the API hasn't taken yet
+    let mut reports: Vec<crate::api::ReaderReport> = vec![]; // reader issues the API hasn't taken yet
     let mut sent: Option<Participants> = None; // who the API was last told is in the call
     let mut held = 0usize; // how many the API has
     let mut open = true;
@@ -142,7 +143,8 @@ pub async fn send(cfg: Config, id: String, mut segments: tokio::sync::mpsc::Unbo
             named = all.len();
         }
         let speakers = new_names.then(|| voices.speakers());
-        let batch = LiveBatch { from: held, segments: &all[held..], participants: changed, speakers: speakers.as_deref(), ended: !open };
+        reports.extend(std::mem::take(&mut *crate::participants::REPORTS.lock().unwrap()));
+        let batch = LiveBatch { from: held, segments: &all[held..], participants: changed, reader: &reports, speakers: speakers.as_deref(), ended: !open };
         match api::live(&cfg, &id, &batch).await {
             Ok(ack) => {
                 held = ack.n.min(all.len());
@@ -150,6 +152,7 @@ pub async fn send(cfg: Config, id: String, mut segments: tokio::sync::mpsc::Unbo
                     sent = now.clone();
                 }
                 new_names = false;
+                reports.clear();
                 if ack.stop && open {
                     stop.cancel();
                 }

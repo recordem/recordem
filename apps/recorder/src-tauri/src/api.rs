@@ -34,6 +34,17 @@ pub struct Segment {
     pub speaker: Option<String>,
 }
 
+/// Something the reader profile's Monitor found (a rule that stopped matching, nobody shown speaking…).
+#[derive(Debug, Clone, Serialize)]
+pub struct ReaderReport {
+    pub t_ms: u64,
+    pub profile: String,
+    pub revision: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub app_version: Option<String>,
+    pub event: serde_json::Value,
+}
+
 /// A name for a voice of the transcript: "system:1" → "Ana Souza".
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpeakerName {
@@ -143,6 +154,9 @@ pub struct LiveBatch<'a> {
     /// Who is in the call now, when it changed since the last batch the API took.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub participants: Option<&'a Participants>,
+    /// What went wrong reading the call app since the last batch the API took (participants.rs).
+    #[serde(skip_serializing_if = "<[ReaderReport]>::is_empty")]
+    pub reader: &'a [ReaderReport],
     /// Names for the live voices, when one appeared since the last batch the API took.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub speakers: Option<&'a [SpeakerName]>,

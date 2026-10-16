@@ -1,0 +1,17 @@
+{
+  "id": "teams-web",
+  "revision": 1,
+  "apps": [
+    "com.google.Chrome",
+    "company.thebrowser.Browser",
+    "com.brave.Browser",
+    "com.microsoft.edgemac",
+    "com.apple.Safari"
+  ],
+  "platform": "microsoft_teams",
+  "links": [
+    "^https://teams\\.(microsoft|live)\\.com/"
+  ],
+  "tiles": [],
+  "name": []
+}

@@ -18,6 +18,7 @@ mod mute;
 mod oauth;
 mod participants;
 mod permissions;
+mod profiles;
 mod transcribe;
 
 use api::{Match, Transcript};
@@ -638,12 +639,13 @@ async fn start(app: AppHandle, meeting_id: Option<String>) -> Result<(), String>
     } else {
         (None, None)
     };
-    // Mute follows the call's own button where it can be read: Meet in a browser, the Zoom app.
-    let source = match call.app_id.as_deref() {
-        Some("us.zoom.xos") => Some(mute::Source::Zoom),
-        Some(id) if meeting_app(id) == Some(None) => Some(mute::Source::Meet),
-        _ => None,
-    };
+    // Mute follows the call's own button where it can be read (Meet in a browser, the Zoom app): where it is and what
+    // it says come from the app's reader profile.
+    let source = call.app_id.as_deref().and_then(|id| {
+        let all = profiles::current();
+        let p = all.for_app(id, None).into_iter().find(|p| p.self_mic.is_some())?;
+        Some(mute::Reader { mic: p.self_mic.clone()?, links: p.links.clone() })
+    });
     if let (Some(source), Some(id)) = (source, call.app_id.clone()) {
         let app = app.clone();
         mute::watch(source, id, stop.clone(), move |m| set_muted(&app, m));
@@ -943,11 +945,7 @@ fn on_detect(app: &AppHandle, ev: anlg_detect::DetectEvent) {
                 if browser {
                     let id = a.id.clone();
                     if let Ok(Some((url, tab))) = tauri::async_runtime::spawn_blocking(move || callurl::find(&id)).await {
-                        call.app = call.app.or_else(|| {
-                            if url.contains("meet.google.com") { Some("google_meet".into()) }
-                            else if url.contains("zoom.us") { Some("zoom".into()) }
-                            else { Some("microsoft_teams".into()) }
-                        });
+                        call.app = call.app.or_else(|| callurl::platform(&a.id, &url).filter(|p| !p.is_empty()));
                         call.title = call.title.or(Some(tab));
                         call.url = Some(url);
                     }
@@ -1084,6 +1082,7 @@ pub fn run() {
                 }
             });
             tauri::async_runtime::spawn(resume(handle));
+            tauri::async_runtime::spawn(profiles::keep_fresh());
             Ok(())
         })
         .on_window_event(|w, e| {

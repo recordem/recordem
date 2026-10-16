@@ -2,7 +2,7 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import {
   ContextRequest, CreatedRecording, CreatedWebhook, CreateRecording, CreateWebhook, ErrorBody, FinalTranscript, LiveAck, LiveBatch, Match, Me, Meeting, MeetingDetail, NameSpeaker, Page,
-  Recording, StreamEvent, Transcript, Track, TrackUrl, UpdateMeeting, MoveRecording, WebhookEndpoint,
+  ReaderProfiles, Recording, StreamEvent, Transcript, Track, TrackUrl, UpdateMeeting, MoveRecording, WebhookEndpoint,
 } from "./schemas";
 import type { Scope } from "./scopes";
 
@@ -194,4 +194,11 @@ export const deleteWebhook = createRoute({
   summary: "Stop sending to an endpoint", ...needs("webhooks:manage"),
   request: { params: id },
   responses: { 204: { description: "Removed" }, ...errors, ...notFound },
+});
+
+export const readerProfiles = createRoute({
+  method: "get", path: "/v1/recorder/profiles", operationId: "readerProfiles", tags: ["recorder"],
+  summary: "How to read each call app", description: "Public, no token: a recorder needs it before any recording exists. Answers 304 to a matching If-None-Match.",
+  "x-scopes": [], "x-upload": false, "x-public": true,
+  responses: { 200: json(ReaderProfiles, "The profiles"), 304: { description: "Unchanged since the ETag sent" } },
 });

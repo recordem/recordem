@@ -17,6 +17,49 @@ pub struct Field {
     pub regex: Option<Regex>,
 }
 
+fn regex_req<'de, D: Deserializer<'de>>(d: D) -> Result<Regex, D::Error> {
+    Regex::new(&String::deserialize(d)?).map_err(serde::de::Error::custom)
+}
+
+fn regex_list<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Regex>, D::Error> {
+    Vec::<String>::deserialize(d)?.iter().map(|s| Regex::new(s).map_err(serde::de::Error::custom)).collect()
+}
+
+/// The person on this Mac's own mic control, read to follow the call's mute: a label that says it is muted or open.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SelfMic {
+    /// Where it is: a button in the call's window (Meet), or an item of the app's menus (Zoom's "Meeting" menu).
+    #[serde(rename = "in", default)]
+    pub place: MicPlace,
+    /// Its label while the mic is muted ("Turn on microphone"), and while it is open ("Turn off microphone").
+    #[serde(deserialize_with = "regex_req")]
+    pub muted: Regex,
+    #[serde(deserialize_with = "regex_req")]
+    pub open: Regex,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MicPlace {
+    #[default]
+    Window,
+    Menu,
+}
+
+impl SelfMic {
+    /// muted (true), open (false), or another control.
+    pub fn state(&self, label: &str) -> Option<bool> {
+        let l = label.trim();
+        if self.muted.is_match(l) {
+            Some(true)
+        } else if self.open.is_match(l) {
+            Some(false)
+        } else {
+            None
+        }
+    }
+}
+
 fn regex_opt<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Regex>, D::Error> {
     Option::<String>::deserialize(d)?
         .map(|s| Regex::new(&s).map_err(serde::de::Error::custom))
@@ -121,9 +164,12 @@ pub struct Profile {
     pub stage: Option<Selector>,
     /// One element per participant. Alternatives in order of trust: the first that finds named tiles is used, and
     /// using any but the first is reported (the app changed; the profile needs an update).
+    #[serde(default)]
     pub tiles: Vec<Selector>,
     #[serde(default = "deep")]
     pub tile_depth: usize,
+    /// Empty in a profile that only knows the call by its links (a web app nobody reads yet).
+    #[serde(default)]
     pub name: Vec<Field>,
     /// The participant is speaking when this matches the tile or an element in it.
     #[serde(default)]
@@ -148,6 +194,14 @@ pub struct Profile {
     /// Tile names that are not people ("Presentation", "You are presenting"…).
     #[serde(default, deserialize_with = "regex_opt")]
     pub ignore_name: Option<Regex>,
+    /// What the server calls the platform ("google_meet", "zoom"…).
+    #[serde(default)]
+    pub platform: Option<String>,
+    /// The call's links (a browser tab whose URL matches is the call's).
+    #[serde(default, deserialize_with = "regex_list")]
+    pub links: Vec<Regex>,
+    #[serde(default)]
+    pub self_mic: Option<SelfMic>,
 }
 
 fn deep() -> usize {

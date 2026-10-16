@@ -1,7 +1,10 @@
 {
   "id": "zoom",
-  "revision": 2,
+  "revision": 3,
   "apps": ["us.zoom.xos"],
+  "platform": "zoom",
+  "links": ["^https://([a-z0-9-]+\\.)?zoom\\.us/(j|my|w)/"],
+  "self_mic": { "in": "menu", "muted": "(?i)^(unmute audio|ativar áudio|ativar som)$", "open": "(?i)^(mute audio|desativar áudio|desativar som)$" },
   "window": ["descendant", ["or",
     ["one_of", "role_description", ["Video render", "Video rendern", "Representación de vídeo", "Rendu vidéo", "Render video", "Rendering video", "ビデオ レンダリング", "비디오 렌더링", "videorender", "Renderowanie wideo", "Renderização de vídeo", "Обработка видео", "Videoåtergivning", "Video oluşturma", "Kết xuất video", "视频渲染", "視訊轉換"]],
     ["and", ["eq", "role", "AXUnknown"], ["matches", "description", "(?i),[^,]*\\b(muted|unmuted|audio)\\b"]],

@@ -97,6 +97,45 @@
           "participants": {
             "$ref": "#/components/schemas/Participants"
           },
+          "reader": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "t_ms": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "profile": {
+                  "type": "string",
+                  "maxLength": 60
+                },
+                "revision": {
+                  "type": "integer"
+                },
+                "app_version": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 40
+                },
+                "event": {
+                  "type": "object",
+                  "additionalProperties": {},
+                  "description": "e.g. {\"event\": \"report\", \"issue\": \"no_participants\"}"
+                }
+              },
+              "required": [
+                "t_ms",
+                "profile",
+                "revision",
+                "event"
+              ]
+            },
+            "maxItems": 100,
+            "description": "What went wrong reading the call app (a reader profile that stopped matching), since the last batch taken"
+          },
           "speakers": {
             "type": "array",
             "items": {
@@ -910,6 +949,43 @@
         "required": [
           "ended_at",
           "segments"
+        ]
+      },
+      "ReaderProfiles": {
+        "type": "object",
+        "properties": {
+          "profiles": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "example": "meet-chrome"
+                },
+                "revision": {
+                  "type": "integer",
+                  "description": "Bumped on every change; a recorder keeps the higher of its own and this"
+                },
+                "apps": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Bundle ids it reads"
+                }
+              },
+              "required": [
+                "id",
+                "revision",
+                "apps"
+              ],
+              "additionalProperties": {}
+            }
+          }
+        },
+        "required": [
+          "profiles"
         ]
       },
       "StreamEvent": {
@@ -2548,6 +2624,34 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/v1/recorder/profiles": {
+      "get": {
+        "operationId": "readerProfiles",
+        "tags": [
+          "recorder"
+        ],
+        "summary": "How to read each call app",
+        "description": "Public, no token: a recorder needs it before any recording exists. Answers 304 to a matching If-None-Match.",
+        "x-scopes": [],
+        "x-upload": false,
+        "x-public": true,
+        "responses": {
+          "200": {
+            "description": "The profiles",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReaderProfiles"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Unchanged since the ETag sent"
           }
         }
       }

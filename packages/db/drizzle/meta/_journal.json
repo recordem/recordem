@@ -29,6 +29,13 @@
       "when": 1792184623791,
       "tag": "0003_webhooks_recording_ref",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792185773841,
+      "tag": "0004_recording_reader",
+      "breakpoints": true
     }
   ]
 }

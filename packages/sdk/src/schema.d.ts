@@ -284,6 +284,26 @@ export interface paths {
         patch: operations["nameSpeaker"];
         trace?: never;
     };
+    "/v1/recorder/profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How to read each call app
+         * @description Public, no token: a recorder needs it before any recording exists. Answers 304 to a matching If-None-Match.
+         */
+        get: operations["readerProfiles"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/recordings/{id}/stop": {
         parameters: {
             query?: never;
@@ -343,6 +363,17 @@ export interface components {
             from: number;
             segments: components["schemas"]["Segment"][];
             participants?: components["schemas"]["Participants"];
+            /** @description What went wrong reading the call app (a reader profile that stopped matching), since the last batch taken */
+            reader?: {
+                t_ms: number;
+                profile: string;
+                revision: number;
+                app_version?: string | null;
+                /** @description e.g. {"event": "report", "issue": "no_participants"} */
+                event: {
+                    [key: string]: unknown;
+                };
+            }[];
             /** @description Names for the live voices so far (who the call app showed speaking during each line); sent when they change. Names set by hand are kept */
             speakers?: components["schemas"]["SpeakerName"][];
             /** @description The last batch: the recording ended */
@@ -593,6 +624,18 @@ export interface components {
             segments: components["schemas"]["Segment"][];
             /** @description Names for the voices; names set by hand are kept, and entries with source user here are ignored */
             speakers?: components["schemas"]["SpeakerName"][];
+        };
+        ReaderProfiles: {
+            profiles: ({
+                /** @example meet-chrome */
+                id: string;
+                /** @description Bumped on every change; a recorder keeps the higher of its own and this */
+                revision: number;
+                /** @description Bundle ids it reads */
+                apps: string[];
+            } & {
+                [key: string]: unknown;
+            })[];
         };
         StreamEvent: {
             /** @description Event id (also the SSE id) */
@@ -1615,6 +1658,33 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Error"];
                 };
+            };
+        };
+    };
+    readerProfiles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The profiles */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReaderProfiles"];
+                };
+            };
+            /** @description Unchanged since the ETag sent */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

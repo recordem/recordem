@@ -25,13 +25,18 @@ end if"#
     }
     String::from_utf8_lossy(&o.stdout).lines().find_map(|l| {
         let (u, t) = l.split_once('\t').unwrap_or((l, ""));
-        is_meeting(u).then(|| (u.to_string(), t.to_string()))
+        is_meeting(bundle_id, u).then(|| (u.to_string(), t.to_string()))
     })
 }
 
-fn is_meeting(u: &str) -> bool {
-    let meet = u.contains("meet.google.com/") && u.split('/').nth(3).map(|p| p.len() == 12 && p.chars().filter(|c| *c == '-').count() == 2).unwrap_or(false);
-    meet || u.contains("zoom.us/j/") || u.contains("zoom.us/wc/") || u.contains("teams.microsoft.com/") || u.contains("teams.live.com/")
+/// A call's link, by the reader profiles of this browser: the platform it is on ("google_meet", "zoom"…).
+pub fn platform(bundle_id: &str, u: &str) -> Option<String> {
+    let all = crate::profiles::current();
+    all.for_app(bundle_id, None).into_iter().find(|p| p.links.iter().any(|l| l.is_match(u))).map(|p| p.platform.clone().unwrap_or_default())
+}
+
+fn is_meeting(bundle_id: &str, u: &str) -> bool {
+    platform(bundle_id, u).is_some()
 }
 
 /// A window or tab title worth showing as the meeting's name: not the app's own label nor just the call code.

@@ -5,7 +5,7 @@
 // nothing is written and the transcript keeps "system:N".
 use crate::api::{Participant, Participants, Segment, SpeakerName};
 use recordem_ax::{AxNode, Limits, Scope};
-use recordem_scrape::{Monitor, Profile, Profiles, Scrape};
+use recordem_scrape::{Monitor, Profile, Scrape};
 use recordem_timeline::{Assignment, Options, Sample, Turn};
 use serde::{Deserialize, Serialize};
 use std::io::Write;
@@ -55,6 +55,18 @@ impl Line {
 /// The last line read, for the live transcript to send along.
 pub type Latest = Arc<Mutex<Option<Line>>>;
 
+/// When the other side was last audible (unix ms; the capture sets it): tells the Monitor a call with nobody shown
+/// speaking is a broken profile, not a quiet call.
+pub static REMOTE_AUDIBLE_AT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// What the Monitor found wrong with the profile, for the live transcript to report (the server logs and keeps it,
+/// so a change in Meet or Zoom is seen before anyone complains).
+pub static REPORTS: Mutex<Vec<crate::api::ReaderReport>> = Mutex::new(Vec::new());
+
+fn unix_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
+}
+
 fn snapshot(pid: i32, profiles: &[&Profile]) -> Option<AxNode> {
     let window = |w: &AxNode| profiles.iter().any(|p| p.wants_window(w));
     let prune = |n: &AxNode| profiles.iter().all(|p| p.prunes(n));
@@ -79,10 +91,11 @@ pub fn watch(bundle: String, dir: PathBuf, started: Instant, stop: CancellationT
     if !recordem_ax::is_trusted() {
         return;
     }
-    let all = Profiles::builtin();
+    let all = crate::profiles::current();
     if all.for_app(&bundle, None).is_empty() {
         return;
     }
+    REPORTS.lock().unwrap().clear();
     std::thread::spawn(move || {
         let Ok(mut file) = std::fs::File::create(dir.join("speakers.jsonl")) else { return };
         let mut monitor = Monitor::default();
@@ -103,9 +116,19 @@ pub fn watch(bundle: String, dir: PathBuf, started: Instant, stop: CancellationT
             }
             let t_ms = started.elapsed().as_millis() as u64;
             if let Some(s) = read {
-                for event in monitor.observe(t_ms, &s, None) {
-                    // Reported to the server once that route exists; for now the log says when a profile broke.
+                let audible = unix_ms().saturating_sub(REMOTE_AUDIBLE_AT.load(std::sync::atomic::Ordering::Relaxed)) < 1_500;
+                for event in monitor.observe(t_ms, &s, Some(audible)) {
                     eprintln!("participants: {}", serde_json::to_string(&event).unwrap_or_default());
+                    let mut r = REPORTS.lock().unwrap();
+                    if r.len() < 100 {
+                        r.push(crate::api::ReaderReport {
+                            t_ms,
+                            profile: s.profile.clone(),
+                            revision: s.revision,
+                            app_version: pid.as_ref().and_then(|(_, v)| v.clone()),
+                            event: serde_json::to_value(&event).unwrap_or_default(),
+                        });
+                    }
                 }
                 let l = line(t_ms, &s);
                 *latest.lock().unwrap() = Some(l.clone());

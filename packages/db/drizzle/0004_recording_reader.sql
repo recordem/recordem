@@ -1,0 +1,1 @@
+ALTER TABLE "recordings" ADD COLUMN "reader" jsonb DEFAULT '[]'::jsonb NOT NULL;

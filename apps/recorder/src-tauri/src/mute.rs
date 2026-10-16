@@ -2,13 +2,15 @@
 // the call) and the two channels keep the same length. The other side of the call is still recorded.
 //
 // It follows the call's own mute button where that can be read through the Accessibility tree (that permission):
-// Google Meet in the browser (the mic button is "Ativar microfone" while muted, "Desativar microfone" while open) and
-// the Zoom app (its menu: "Unmute Audio" / "Mute Audio"). Only a change of the call's button moves it, so the
-// recorder's own toggle holds until the next change in the call. When the button can't be read (another tab in front,
-// a language not listed here, no permission, Meet renamed it) nothing changes and the recording goes on as it was.
+// where the control is and its labels come from the app's reader profile (`self_mic`): Google Meet in the browser
+// (the mic button is "Ativar microfone" while muted, "Desativar microfone" while open), the Zoom app (its menu:
+// "Unmute Audio" / "Mute Audio"). Only a change of the call's button moves it, so the recorder's own toggle holds
+// until the next change in the call. When the button can't be read (another tab in front, a language the profile
+// lacks, no permission, the app renamed it) nothing changes and the recording goes on as it was.
 //
 // Plain Core Foundation / AX calls with their status codes: cidre's AX wrappers abort on some valid error codes
 // (Anarlog's note in meeting_ax.rs), and nothing here may take the app, and the recording, down with it.
+use recordem_scrape::MicPlace;
 use std::ffi::{c_char, c_void};
 use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
@@ -113,40 +115,11 @@ fn string(r: Ref) -> Option<String> {
     }
 }
 
-/// Meet's mic button, by its label's start (the shortcut may follow: "Ativar microfone (⌘ + d)").
-const MEET_MUTED: &[&str] = &["turn on microphone", "ativar microfone", "activar micrófono"];
-const MEET_OPEN: &[&str] = &["turn off microphone", "desativar microfone", "desactivar micrófono"];
-/// Zoom's menu item, whole.
-const ZOOM_MUTED: &[&str] = &["unmute audio", "ativar áudio", "ativar som"];
-const ZOOM_OPEN: &[&str] = &["mute audio", "desativar áudio", "desativar som"];
-
-/// muted (true), open (false), or not this button.
-fn meet_label(label: &str) -> Option<bool> {
-    let l = label.trim().to_lowercase();
-    if MEET_MUTED.iter().any(|p| l.starts_with(p)) {
-        Some(true)
-    } else if MEET_OPEN.iter().any(|p| l.starts_with(p)) {
-        Some(false)
-    } else {
-        None
-    }
-}
-
-fn zoom_label(label: &str) -> Option<bool> {
-    let l = label.trim().to_lowercase();
-    if ZOOM_MUTED.contains(&l.as_str()) {
-        Some(true)
-    } else if ZOOM_OPEN.contains(&l.as_str()) {
-        Some(false)
-    } else {
-        None
-    }
-}
-
-#[derive(Clone, Copy, PartialEq)]
-pub enum Source {
-    Meet,
-    Zoom,
+/// What to look for, from the app's reader profile (crates/scrape/profiles: data, updated from the server): the mic
+/// control's labels, and in a browser the call's links (only those pages are searched).
+pub struct Reader {
+    pub mic: recordem_scrape::SelfMic,
+    pub links: Vec<recordem_scrape::Regex>,
 }
 
 const POLL: Duration = Duration::from_secs(1);
@@ -156,7 +129,7 @@ const MAX_NODES: usize = 5000;
 const MAX_DEPTH: usize = 80;
 
 struct Watch {
-    source: Source,
+    reader: Reader,
     bundle: String,
     app: Option<(i32, Cf)>,
     button: Option<Cf>,
@@ -179,17 +152,20 @@ impl Watch {
     }
 
     fn poll(&mut self) -> Option<bool> {
-        match self.source {
-            Source::Zoom => zoom(self.app()?),
-            Source::Meet => self.meet(),
+        match self.reader.mic.place {
+            MicPlace::Menu => {
+                let mic = self.reader.mic.clone();
+                menu(self.app()?, &mic)
+            }
+            MicPlace::Window => self.window(),
         }
     }
 
-    fn meet(&mut self) -> Option<bool> {
+    fn window(&mut self) -> Option<bool> {
         // The button found before: one call to read its label.
         if let Some(b) = &self.button {
             let label = b.text("AXDescription").or_else(|| b.text("AXTitle"));
-            if let Some(m) = label.as_deref().and_then(meet_label) {
+            if let Some(m) = label.as_deref().and_then(|l| self.reader.mic.state(l)) {
                 return Some(m);
             }
             self.button = None;
@@ -198,12 +174,13 @@ impl Watch {
             return None;
         }
         self.searched = Some(Instant::now());
-        let app = self.app()?;
+        self.app()?;
+        let app = &self.app.as_ref()?.1;
         let mut visited = 0;
         let mut meet_page = false;
         let mut found = None;
         for w in app.elements("AXWindows") {
-            if let Some(b) = find_meet_button(&w, 0, &mut visited, &mut meet_page, false) {
+            if let Some(b) = find_button(&w, &self.reader, 0, &mut visited, &mut meet_page, false) {
                 found = Some(b);
                 break;
             }
@@ -229,9 +206,9 @@ impl Watch {
     }
 }
 
-/// Depth-first through a browser window; only Meet pages (by URL) are searched inside.
-/// `meet_page` notes that one was seen; `inside`, that `el` is in one.
-fn find_meet_button(el: &Cf, depth: usize, visited: &mut usize, meet_page: &mut bool, inside: bool) -> Option<(Cf, bool)> {
+/// Depth-first through a window; in a browser (a window with web pages), only the call's pages (by the profile's
+/// links) are searched inside. `meet_page` notes that one was seen; `inside`, that `el` is in one.
+fn find_button(el: &Cf, r: &Reader, depth: usize, visited: &mut usize, meet_page: &mut bool, inside: bool) -> Option<(Cf, bool)> {
     if depth > MAX_DEPTH || *visited >= MAX_NODES {
         return None;
     }
@@ -239,7 +216,8 @@ fn find_meet_button(el: &Cf, depth: usize, visited: &mut usize, meet_page: &mut 
     let role = el.text("AXRole").unwrap_or_default();
     let mut inside = inside;
     if role == "AXWebArea" && !inside {
-        if !el.text("AXURL").unwrap_or_default().contains("meet.google.com") {
+        let url = el.text("AXURL").unwrap_or_default();
+        if !r.links.iter().any(|l| l.is_match(&url)) {
             return None;
         }
         *meet_page = true;
@@ -248,27 +226,28 @@ fn find_meet_button(el: &Cf, depth: usize, visited: &mut usize, meet_page: &mut 
     if role == "AXButton" || role == "AXCheckBox" {
         if inside {
             let label = el.text("AXDescription").or_else(|| el.text("AXTitle"));
-            if let Some(m) = label.as_deref().and_then(meet_label) {
+            if let Some(m) = label.as_deref().and_then(|l| r.mic.state(l)) {
                 return Some((Cf(unsafe { CFRetain(el.0) }), m));
             }
         }
         return None;
     }
     for c in el.elements("AXChildren") {
-        if let Some(hit) = find_meet_button(&c, depth + 1, visited, meet_page, inside) {
+        if let Some(hit) = find_button(&c, r, depth + 1, visited, meet_page, inside) {
             return Some(hit);
         }
     }
     None
 }
 
-/// Zoom's menu bar: some menu has "Mute Audio" or "Unmute Audio" while in a meeting (titles only; nothing is opened).
-fn zoom(app: &Cf) -> Option<bool> {
+/// The app's menu bar: in a meeting some menu has the mic item (Zoom's "Mute Audio" / "Unmute Audio"); titles only,
+/// nothing is opened.
+fn menu(app: &Cf, mic: &recordem_scrape::SelfMic) -> Option<bool> {
     let bar = app.attr("AXMenuBar")?;
     for item in bar.elements("AXChildren") {
         for menu in item.elements("AXChildren") {
             for entry in menu.elements("AXChildren") {
-                if let Some(m) = entry.text("AXTitle").as_deref().and_then(zoom_label) {
+                if let Some(m) = entry.text("AXTitle").as_deref().and_then(|l| mic.state(l)) {
                     return Some(m);
                 }
             }
@@ -283,9 +262,9 @@ fn pid(bundle: &str) -> Option<i32> {
 }
 
 /// Follows the call app's mute button until `stop`; `changed` gets each new state (the first one seen included).
-pub fn watch(source: Source, bundle: String, stop: CancellationToken, changed: impl Fn(bool) + Send + 'static) {
+pub fn watch(reader: Reader, bundle: String, stop: CancellationToken, changed: impl Fn(bool) + Send + 'static) {
     let spawned = std::thread::Builder::new().name("mute-watch".into()).spawn(move || {
-        let mut w = Watch { source, bundle, app: None, button: None, searched: None, manual_ax: false };
+        let mut w = Watch { reader, bundle, app: None, button: None, searched: None, manual_ax: false };
         let mut last = None;
         while !stop.is_cancelled() {
             std::thread::sleep(POLL);
@@ -312,17 +291,19 @@ pub fn watch(source: Source, bundle: String, stop: CancellationToken, changed: i
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
+    /// The labels the built-in profiles know (the server's may add languages).
     #[test]
     fn labels() {
-        assert_eq!(meet_label("Ativar microfone (⌘ + d)"), Some(true));
-        assert_eq!(meet_label("Desativar microfone (⌘ + d)"), Some(false));
-        assert_eq!(meet_label("Turn on microphone"), Some(true));
-        assert_eq!(meet_label("Turn off microphone (⌘ + d)"), Some(false));
-        assert_eq!(meet_label("Configurações de áudio"), None);
-        assert_eq!(zoom_label("Unmute Audio"), Some(true));
-        assert_eq!(zoom_label("Mute Audio"), Some(false));
-        assert_eq!(zoom_label("Mute All"), None);
+        let p = recordem_scrape::Profiles::builtin();
+        let mic = |id: &str| p.all().iter().find(|x| x.id == id).and_then(|x| x.self_mic.clone()).unwrap();
+        let (meet, zoom) = (mic("meet-chrome"), mic("zoom"));
+        assert_eq!(meet.state("Ativar microfone (⌘ + d)"), Some(true));
+        assert_eq!(meet.state("Desativar microfone (⌘ + d)"), Some(false));
+        assert_eq!(meet.state("Turn on microphone"), Some(true));
+        assert_eq!(meet.state("Turn off microphone (⌘ + d)"), Some(false));
+        assert_eq!(meet.state("Configurações de áudio"), None);
+        assert_eq!(zoom.state("Unmute Audio"), Some(true));
+        assert_eq!(zoom.state("Mute Audio"), Some(false));
+        assert_eq!(zoom.state("Mute All"), None);
     }
 }
