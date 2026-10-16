@@ -6,3 +6,5 @@ dist/
 target/
 data/
 .cert/
+# local research notes and third-party material: never committed (the repository is public)
+.research/
