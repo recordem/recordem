@@ -222,3 +222,14 @@ fn names_without_the_name_class() {
     names.sort();
     assert_eq!(names, ["Ana Souza", "Bruno Lima", "Carla Dias"]);
 }
+
+/// What a reader report carries: the stage, never the chat beside it.
+#[test]
+fn excerpt_is_the_stage_only() {
+    let tree = load("ana-speaking-3");
+    let e = meet().excerpt(&tree).expect("the call's window");
+    let text = serde_json::to_string(&e).unwrap();
+    assert!(text.contains("Ana Souza") && text.contains("AXLandmarkMain"));
+    assert!(!text.contains("Enviar uma mensagem") && !text.contains("Olá a todos"), "the chat stays out");
+    assert!(meet().scrape(&AxNode { children: vec![e.clone()], ..Default::default() }).is_some_and(|s| s.participants.len() == 3), "still readable");
+}

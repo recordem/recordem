@@ -2628,6 +2628,103 @@
         }
       }
     },
+    "/v1/recordings/{id}/reader-dumps/{name}": {
+      "put": {
+        "operationId": "putReaderDump",
+        "tags": [
+          "recorder"
+        ],
+        "summary": "Send what the call app's window looked like when its reader broke",
+        "description": "Sent only when the person allows it: the last good snapshot of the call's stage and the one that broke (`<t_ms>-good.json.gz`, `<t_ms>-bad.json.gz`), so the reader profile can be fixed. Gzipped JSON, 4 MB at most, 6 per recording.",
+        "security": [
+          {
+            "oauth2": [
+              "meetings:write"
+            ]
+          }
+        ],
+        "x-scopes": [
+          "meetings:write"
+        ],
+        "x-upload": true,
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]{1,9}-(good|bad)\\.json\\.gz$"
+            },
+            "required": true,
+            "name": "name",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/gzip": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Kept"
+          },
+          "401": {
+            "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token lacks a required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found in this workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Too large, or too many for this recording",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/recorder/profiles": {
       "get": {
         "operationId": "readerProfiles",

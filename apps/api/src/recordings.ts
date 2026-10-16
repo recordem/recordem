@@ -140,9 +140,13 @@ export function mount(app: OpenAPIHono<Env>, db: Db) {
   });
 
   /** Audio of these recordings, removed from storage after their rows are gone (a failure only leaves an orphan file). */
+  /** Every file of these recordings in storage: the audio tracks and any reader dumps. */
   async function dropAudio(recordingIds: string[]) {
     if (!recordingIds.length) return [];
-    return db.select({ key: tracks.key }).from(tracks).where(inArray(tracks.recordingId, recordingIds));
+    const audio = await db.select({ key: tracks.key }).from(tracks).where(inArray(tracks.recordingId, recordingIds));
+    const rs = await db.select({ reader: recordings.reader }).from(recordings).where(inArray(recordings.id, recordingIds));
+    const dumps = rs.flatMap((r) => r.reader).flatMap((x) => (x.event?.event === "dump" && typeof x.event.key === "string" ? [{ key: x.event.key }] : []));
+    return [...audio, ...dumps];
   }
   const removeFiles = (keys: { key: string }[]) =>
     Promise.allSettled(keys.map((k) => storage.delete(k.key))).then((rs) => rs.forEach((r) => r.status === "rejected" && console.error("storage delete:", r.reason)));
@@ -289,6 +293,23 @@ export function mount(app: OpenAPIHono<Env>, db: Db) {
       .onConflictDoUpdate({ target: [tracks.recordingId, tracks.kind], set: values }).returning();
     await publish(a.workspace, { type: "track.ready", meeting_id: r.meetingId, recording_id: r.id, data: trackView(t) });
     return c.json(trackView(t), 200);
+  });
+
+  // A reader's last good and broken snapshots, when the person allows sending them: kept next to the audio and listed
+  // on the recording's reader reports (event "dump"), for whoever fixes the profile.
+  app.openapi(routes.putReaderDump, async (c) => {
+    const a = c.get("actor");
+    const { id, name } = c.req.valid("param");
+    const r = await recording(a, id, true);
+    const tooMany = r.reader.filter((x) => x.event?.event === "dump").length >= 6;
+    const body = await c.req.blob();
+    if (tooMany || body.size > 4 * 1024 * 1024) return c.json({ error: "too_large", message: "4 MB and 6 dumps per recording at most" }, 413);
+    const key = `w/${a.workspace}/m/${r.meetingId}/r/${r.id}/reader/${name}`;
+    await storage.put(key, body, "application/gzip");
+    const entry = { t_ms: Number(name.split("-")[0]), profile: "", revision: 0, event: { event: "dump", name, key } };
+    await db.update(recordings).set({ reader: sql`${recordings.reader} || ${JSON.stringify([entry])}::jsonb` }).where(eq(recordings.id, r.id));
+    console.warn(`reader dump: recording ${r.id} ${name} (${body.size} bytes)`);
+    return c.body(null, 204);
   });
 
   app.openapi(routes.getTrack, async (c) => {

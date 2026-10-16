@@ -121,6 +121,7 @@ pub fn watch(bundle: String, dir: PathBuf, started: Instant, stop: CancellationT
         let mut calibrator = recordem_scrape::calibrate::Calibrator::default();
         let mut speaking_class: Option<String> = None;
         let mut judged = Instant::now();
+        let mut last_good: Option<(u64, recordem_ax::AxNode)> = None;
         while !stop.is_cancelled() {
             let tick = Instant::now();
             // The app may restart during the call (Teams does): look it up again whenever it is gone.
@@ -138,19 +139,26 @@ pub fn watch(bundle: String, dir: PathBuf, started: Instant, stop: CancellationT
             }
             let read = pid.as_ref().zip(localized.as_ref()).and_then(|((p, _), (_, mine))| {
                 let profiles: Vec<&Profile> = mine.iter().collect();
-                snapshot(*p, &profiles).and_then(|tree| recordem_scrape::scrape(&profiles, &tree))
+                snapshot(*p, &profiles).and_then(|tree| recordem_scrape::scrape(&profiles, &tree).map(|s| (tree, s)))
             });
             if read.is_none() {
                 pid = None;
             }
             let t_ms = started.elapsed().as_millis() as u64;
-            if let Some(mut s) = read {
+            if let Some((tree, mut s)) = read {
+                let profile = localized.as_ref().and_then(|(_, mine)| mine.iter().find(|p| p.id == s.profile));
                 let now = unix_ms();
                 let audible = now.saturating_sub(REMOTE_AUDIBLE_AT.load(std::sync::atomic::Ordering::Relaxed)) < 1_500;
                 let me_audible = now.saturating_sub(ME_AUDIBLE_AT.load(std::sync::atomic::Ordering::Relaxed)) < 1_500;
                 let version = pid.as_ref().and_then(|(_, v)| v.clone());
+                // The last good look at the call, and next to it the one where reading broke (dumps.rs).
+                if s.health.status == recordem_scrape::Status::Healthy && last_good.as_ref().is_none_or(|(t, _)| t_ms >= t + 10_000) {
+                    last_good = profile.and_then(|p| p.excerpt(&tree)).map(|e| (t_ms, e));
+                }
+                let mut broke = false;
                 for event in monitor.observe(t_ms, &s, Some(audible)) {
                     eprintln!("participants: {}", serde_json::to_string(&event).unwrap_or_default());
+                    broke |= matches!(event, recordem_scrape::Event::Report { .. });
                     report(t_ms, &s, version.clone(), serde_json::to_value(&event).unwrap_or_default());
                 }
                 // Calibration: what each on-screen tile showed, with the profile's own reading as one more mark.
@@ -176,9 +184,13 @@ pub fn watch(bundle: String, dir: PathBuf, started: Instant, stop: CancellationT
                                 eprintln!("participants: speaking read from class {class} ({score:.2}; the profile's {profile:.2})");
                                 report(t_ms, &s, version.clone(), serde_json::json!({ "event": "calibrated", "speaking_class": class, "score": score, "profile_score": profile }));
                             }
+                            broke |= pick.is_some();
                             speaking_class = pick.map(|(c, _)| c);
                         }
                     }
+                }
+                if broke && let Some(bad) = profile.and_then(|p| p.excerpt(&tree)) {
+                    crate::dumps::keep(&dir, t_ms, last_good.as_ref().map(|(_, g)| g), &bad);
                 }
                 if let Some(class) = &speaking_class {
                     for p in s.participants.iter_mut().filter(|p| !p.classes.is_empty()) {

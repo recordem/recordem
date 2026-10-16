@@ -214,6 +214,11 @@ step("upload token sends its recording", r.ok, await r.json());
 r = await fetch(`${API}/v1/recordings/${sdkRec}/live`, { method: "POST", headers: up, body: JSON.stringify({ from: 1, segments: [],
   reader: [{ t_ms: 5000, profile: "meet-chrome", revision: 6, app_version: "141.0", event: { event: "report", issue: "no_participants" } }] }) });
 step("a reader profile issue is taken", r.ok);
+const dump = Bun.gzipSync(new TextEncoder().encode(JSON.stringify({ role: "AXWindow", children: [] })));
+r = await fetch(`${API}/v1/recordings/${sdkRec}/reader-dumps/5000-bad.json.gz`, { method: "PUT", headers: { ...up, "content-type": "application/gzip" }, body: dump });
+step("a reader dump is kept", r.status === 204);
+r = await fetch(`${API}/v1/recordings/${sdkRec}/reader-dumps/../../x`, { method: "PUT", headers: { ...up, "content-type": "application/gzip" }, body: dump });
+step("a dump name is only <t_ms>-good|bad.json.gz", r.status === 400 || r.status === 404);
 step("upload token reads nothing", (await fetch(`${API}/v1/recordings/${sdkRec}`, { headers: up })).status === 403);
 const otherRec = crypto.randomUUID();
 await call("POST", "/v1/recordings", { id: otherRec, started_at: new Date().toISOString() });

@@ -12,6 +12,7 @@ mod callurl;
 mod capture;
 mod config;
 mod diarize;
+mod dumps;
 mod icons;
 mod live;
 mod models;
@@ -336,6 +337,7 @@ struct ConfigView {
     keep_audio: bool,
     voice_hq: bool,
     launch_at_login: bool,
+    share_reader_dumps: bool,
     on_call: String,
     mic_device: Option<String>,
     vocabulary: String,
@@ -354,6 +356,7 @@ fn get_config() -> ConfigView {
         account: c.account,
         languages: config::languages(&c.languages),
         keep_audio: c.keep_audio,
+        share_reader_dumps: c.share_reader_dumps,
         voice_hq: c.voice_hq,
         launch_at_login: c.launch_at_login,
         on_call: c.on_call,
@@ -459,6 +462,8 @@ struct ConfigInput {
     web_url: String,
     languages: Vec<String>,
     keep_audio: bool,
+    #[serde(default)]
+    share_reader_dumps: bool,
     #[serde(default = "live_default")]
     voice_hq: bool,
     launch_at_login: bool,
@@ -485,6 +490,7 @@ fn save_config(app: AppHandle, input: ConfigInput) -> Result<(), String> {
     set_addresses(&mut c, &input.api_url, &input.auth_url, &input.web_url);
     c.languages = config::languages(&input.languages.join(",")).join(",");
     c.keep_audio = input.keep_audio;
+    c.share_reader_dumps = input.share_reader_dumps;
     c.voice_hq = input.voice_hq;
     c.launch_at_login = input.launch_at_login;
     c.on_call = match input.on_call.as_str() { "auto" | "off" => input.on_call, _ => "ask".into() };
@@ -831,6 +837,14 @@ async fn process(app: &AppHandle, dir: PathBuf, warning: Option<String>) {
         api::upload_track(&cfg, &meta.id, "mix", &mix).await?;
         if let Some(v) = voice {
             api::upload_track(&cfg, &meta.id, "mic_hq", &v).await?;
+        }
+        // The reader's broken snapshots, when allowed: a failure here doesn't hold the recording back.
+        if cfg.share_reader_dumps {
+            for (name, bytes) in dumps::all(&dir) {
+                if let Err(e) = api::put_reader_dump(&cfg, &meta.id, &name, bytes).await {
+                    eprintln!("reader dump {name} not sent: {e}");
+                }
+            }
         }
         anyhow::Ok(meeting_id)
     }

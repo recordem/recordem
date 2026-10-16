@@ -396,6 +396,20 @@ impl Profile {
         }
     }
 
+    /// The part of a snapshot a reader report may carry: the call's window with its stage only (the tiles; not the
+    /// chat, side panels, tabs or toolbars), enough to see why the profile stopped reading it.
+    pub fn excerpt(&self, app: &AxNode) -> Option<AxNode> {
+        let window = match &self.window {
+            Some(sel) => app.children.iter().find(|w| w.role.as_deref() == Some("AXWindow") && sel.matches(w))?,
+            None => app,
+        };
+        let stage = match &self.stage {
+            Some(s) => s.find_first(window)?,
+            None => window,
+        };
+        Some(AxNode { role: window.role.clone(), title: window.title.clone(), frame: window.frame, children: vec![stage.clone()], ..Default::default() })
+    }
+
     /// A profile from its JSON, its texts bound to their own values (`localized` adds the app's translations).
     pub fn from_json(json: &str) -> anyhow::Result<Profile> {
         let mut p: Profile = serde_json::from_str(json)?;

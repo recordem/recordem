@@ -194,6 +194,19 @@ pub async fn upload_track(c: &Config, id: &str, kind: &str, path: &std::path::Pa
     Ok(())
 }
 
+/// One of the reader's broken snapshots (dumps.rs), gzipped JSON.
+pub async fn put_reader_dump(c: &Config, id: &str, name: &str, body: Vec<u8>) -> anyhow::Result<()> {
+    let r = client()
+        .put(url(c, &format!("/recordings/{id}/reader-dumps/{name}")))
+        .bearer_auth(crate::oauth::bearer(c).await?)
+        .header("content-type", "application/gzip")
+        .body(body)
+        .send()
+        .await?;
+    check(r).await?;
+    Ok(())
+}
+
 /// A meeting's page in the portal.
 pub fn meeting_url(c: &Config, meeting_id: &str) -> String {
     format!("{}/m/{meeting_id}", c.web_url.trim_end_matches('/'))

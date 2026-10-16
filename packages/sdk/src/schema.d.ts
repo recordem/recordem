@@ -284,6 +284,26 @@ export interface paths {
         patch: operations["nameSpeaker"];
         trace?: never;
     };
+    "/v1/recordings/{id}/reader-dumps/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Send what the call app's window looked like when its reader broke
+         * @description Sent only when the person allows it: the last good snapshot of the call's stage and the one that broke (`<t_ms>-good.json.gz`, `<t_ms>-bad.json.gz`), so the reader profile can be fixed. Gzipped JSON, 4 MB at most, 6 per recording.
+         */
+        put: operations["putReaderDump"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/recorder/profiles": {
         parameters: {
             query?: never;
@@ -1652,6 +1672,67 @@ export interface operations {
             };
             /** @description Not found in this workspace */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    putReaderDump: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/gzip": string;
+            };
+        };
+        responses: {
+            /** @description Kept */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing or invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Token lacks a required scope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found in this workspace */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Too large, or too many for this recording */
+            413: {
                 headers: {
                     [name: string]: unknown;
                 };

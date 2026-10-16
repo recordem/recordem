@@ -38,6 +38,10 @@ pub struct Config {
     pub voice_hq: bool,
     #[serde(default = "yes")]
     pub launch_at_login: bool,
+    /// Send, after a call, what the call app's window looked like when reading it broke (dumps.rs): only its stage,
+    /// to fix the reader profile. Off unless chosen; on in a dev build.
+    #[serde(default = "dev_build")]
+    pub share_reader_dumps: bool,
     /// When a call starts: ask (default), auto (record right away when it matches a meeting), off.
     #[serde(default = "default_on_call")]
     pub on_call: String,
@@ -102,6 +106,10 @@ fn default_on_call() -> String {
 
 fn yes() -> bool {
     true
+}
+
+fn dev_build() -> bool {
+    option_env!("RECORDEM_APP").is_some()
 }
 
 /// Which app this is: "Recordem", or "Recordem Dev" from scripts/dev-build.sh. The dev build is an app of its own

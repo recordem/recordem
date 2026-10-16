@@ -97,6 +97,7 @@ async function settings() {
           .map((m) => `<option value="${esc(m)}" ${c.mic_device === m ? "selected" : ""}>${esc(m)}</option>`).join("")}</select></div>
       <div class="item"><div class="label"><b>My voice in high quality</b><span>48 kHz, to listen back to how you speak</span></div>${toggle("hq", c.voice_hq)}</div>
       <div class="item"><div class="label"><b>Keep audio on this Mac</b><span>Besides the server's copy</span></div>${toggle("keep", c.keep_audio)}</div>
+      <div class="item"><div class="label"><b>Help fix call readers</b><span>When reading Meet or Zoom breaks, send what its call area looked like (the tiles, not the chat)</span></div>${toggle("dumps", c.share_reader_dumps)}</div>
     </div>
 
     <div class="group-title">Transcription</div>
@@ -123,7 +124,7 @@ async function settings() {
     const on = (id) => document.getElementById(id).checked;
     try {
       await invoke("save_config", { input: {
-        api_url: val("api"), auth_url: val("auth"), web_url: val("web"), languages: langs, keep_audio: on("keep"), voice_hq: on("hq"),
+        api_url: val("api"), auth_url: val("auth"), web_url: val("web"), languages: langs, keep_audio: on("keep"), share_reader_dumps: on("dumps"), voice_hq: on("hq"),
         launch_at_login: on("atlogin"), on_call: val("oncall"), mic_device: val("mic") || null, vocabulary: val("vocab"), live: on("live") } });
       document.getElementById("err").textContent = "";
     } catch (e) { document.getElementById("err").textContent = e; }

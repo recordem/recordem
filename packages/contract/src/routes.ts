@@ -202,3 +202,15 @@ export const readerProfiles = createRoute({
   "x-scopes": [], "x-upload": false, "x-public": true,
   responses: { 200: json(ReaderProfiles, "The profiles"), 304: { description: "Unchanged since the ETag sent" } },
 });
+
+export const putReaderDump = createRoute({
+  method: "put", path: "/v1/recordings/{id}/reader-dumps/{name}", operationId: "putReaderDump", tags: ["recorder"],
+  summary: "Send what the call app's window looked like when its reader broke",
+  description: "Sent only when the person allows it: the last good snapshot of the call's stage and the one that broke (`<t_ms>-good.json.gz`, `<t_ms>-bad.json.gz`), so the reader profile can be fixed. Gzipped JSON, 4 MB at most, 6 per recording.",
+  ...sends("meetings:write"),
+  request: {
+    params: z.object({ id: z.string().uuid(), name: z.string().regex(/^[0-9]{1,9}-(good|bad)\.json\.gz$/) }),
+    body: { content: { "application/gzip": { schema: z.string().openapi({ format: "binary" }) } }, required: true },
+  },
+  responses: { 204: { description: "Kept" }, 413: json(ErrorBody, "Too large, or too many for this recording"), ...errors, ...notFound },
+});
