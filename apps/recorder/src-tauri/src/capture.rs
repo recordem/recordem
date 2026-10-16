@@ -96,7 +96,12 @@ pub async fn record(dir: &Path, mic_device: Option<String>, voice_hq: bool, stop
                         (zeros, retries, retry_at) = (Duration::ZERO, 0, None);
                     }
                     let mut m = fr.preferred_mic();
-                    peak_mic = m.iter().fold(peak_mic, |a, x| a.max(x.abs()));
+                    let mine = m.iter().fold(0f32, |a, x| a.max(x.abs()));
+                    peak_mic = peak_mic.max(mine);
+                    if mine > 0.05 && !muted.load(Ordering::Relaxed) {
+                        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
+                        crate::participants::ME_AUDIBLE_AT.store(now, Ordering::Relaxed);
+                    }
                     if muted.load(Ordering::Relaxed) {
                         m = vec![0.0; m.len()].into();
                     }

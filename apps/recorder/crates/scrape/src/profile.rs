@@ -274,6 +274,9 @@ pub struct Participant {
     /// The tile `self_tile` says is the person on this Mac.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub is_self: bool,
+    /// The DOM classes in the tile (web apps), sorted: what calibrate.rs looks through when "speaking" stops reading.
+    #[serde(skip)]
+    pub classes: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -524,7 +527,11 @@ impl Profile {
                         _ => None,
                     };
                     let is_self = self.self_tile.as_ref().is_some_and(|s| s.matches(tile));
-                    out.push(Participant { name, speaking, muted, frame, is_self });
+                    let mut classes: Vec<String> =
+                        std::iter::once(tile).chain(tile.descendants().map(|(_, n)| n)).flat_map(|n| n.dom_classes.iter().cloned()).collect();
+                    classes.sort();
+                    classes.dedup();
+                    out.push(Participant { name, speaking, muted, frame, is_self, classes });
                 }
             }
         }
@@ -573,7 +580,7 @@ impl Profile {
                     Some(&i) => participants[i].speaking = true,
                     None => {
                         index.insert(name.to_string(), participants.len());
-                        participants.push(Participant { name: name.to_string(), speaking: true, muted: None, frame: None, is_self: false });
+                        participants.push(Participant { name: name.to_string(), speaking: true, muted: None, frame: None, is_self: false, classes: Vec::new() });
                     }
                 }
             }
@@ -595,7 +602,7 @@ impl Profile {
                     }
                     None => {
                         index.insert(r.name.clone(), participants.len());
-                        participants.push(Participant { name: r.name.clone(), speaking: false, muted: r.muted, frame: None, is_self: false });
+                        participants.push(Participant { name: r.name.clone(), speaking: false, muted: r.muted, frame: None, is_self: false, classes: Vec::new() });
                     }
                 }
             }

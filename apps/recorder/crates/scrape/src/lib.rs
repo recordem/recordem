@@ -1,6 +1,7 @@
 // From an app's Accessibility tree to who is in the call and who is speaking. What to look for in each app is a
 // profile (profiles/*.json): data, so a redesign of Meet or Zoom is fixed by editing JSON, and a server can ship the
 // fix to recorders without a release. This crate only interprets profiles; it never touches macOS.
+pub mod calibrate;
 mod health;
 mod profile;
 mod selector;

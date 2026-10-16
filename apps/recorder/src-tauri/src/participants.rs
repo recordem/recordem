@@ -58,6 +58,21 @@ pub type Latest = Arc<Mutex<Option<Line>>>;
 /// When the other side was last audible (unix ms; the capture sets it): tells the Monitor a call with nobody shown
 /// speaking is a broken profile, not a quiet call.
 pub static REMOTE_AUDIBLE_AT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// When the person on this Mac was last audible (their mic, echo removed, not muted): calibrates their own tile.
+pub static ME_AUDIBLE_AT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// The profile's own reading of "speaking", scored like a class (calibrate.rs) to compare with the classes.
+const PROFILE_MARK: &str = "@profile";
+/// A class replaces the profile's reading when it scores at least this, and clearly better than the profile.
+const TAKE_OVER: f64 = 0.4;
+const MARGIN: f64 = 0.3;
+
+fn report(t_ms: u64, s: &Scrape, version: Option<String>, event: serde_json::Value) {
+    let mut r = REPORTS.lock().unwrap();
+    if r.len() < 100 {
+        r.push(crate::api::ReaderReport { t_ms, profile: s.profile.clone(), revision: s.revision, app_version: version, event });
+    }
+}
 
 /// What the Monitor found wrong with the profile, for the live transcript to report (the server logs and keeps it,
 /// so a change in Meet or Zoom is seen before anyone complains).
@@ -102,6 +117,10 @@ pub fn watch(bundle: String, dir: PathBuf, started: Instant, stop: CancellationT
         let (mut last, mut written) = (None::<Line>, Instant::now() - HEARTBEAT);
         let mut pid: Option<(i32, Option<String>)> = None;
         let mut localized: Option<(Option<String>, Vec<Profile>)> = None;
+        // When the profile's "speaking" stops reading, the class that does (found during the call; see calibrate.rs).
+        let mut calibrator = recordem_scrape::calibrate::Calibrator::default();
+        let mut speaking_class: Option<String> = None;
+        let mut judged = Instant::now();
         while !stop.is_cancelled() {
             let tick = Instant::now();
             // The app may restart during the call (Teams does): look it up again whenever it is gone.
@@ -125,19 +144,45 @@ pub fn watch(bundle: String, dir: PathBuf, started: Instant, stop: CancellationT
                 pid = None;
             }
             let t_ms = started.elapsed().as_millis() as u64;
-            if let Some(s) = read {
-                let audible = unix_ms().saturating_sub(REMOTE_AUDIBLE_AT.load(std::sync::atomic::Ordering::Relaxed)) < 1_500;
+            if let Some(mut s) = read {
+                let now = unix_ms();
+                let audible = now.saturating_sub(REMOTE_AUDIBLE_AT.load(std::sync::atomic::Ordering::Relaxed)) < 1_500;
+                let me_audible = now.saturating_sub(ME_AUDIBLE_AT.load(std::sync::atomic::Ordering::Relaxed)) < 1_500;
+                let version = pid.as_ref().and_then(|(_, v)| v.clone());
                 for event in monitor.observe(t_ms, &s, Some(audible)) {
                     eprintln!("participants: {}", serde_json::to_string(&event).unwrap_or_default());
-                    let mut r = REPORTS.lock().unwrap();
-                    if r.len() < 100 {
-                        r.push(crate::api::ReaderReport {
-                            t_ms,
-                            profile: s.profile.clone(),
-                            revision: s.revision,
-                            app_version: pid.as_ref().and_then(|(_, v)| v.clone()),
-                            event: serde_json::to_value(&event).unwrap_or_default(),
-                        });
+                    report(t_ms, &s, version.clone(), serde_json::to_value(&event).unwrap_or_default());
+                }
+                // Calibration: what each on-screen tile showed, with the profile's own reading as one more mark.
+                if s.visible && s.participants.iter().any(|p| !p.classes.is_empty()) {
+                    let marked: Vec<(bool, Vec<String>)> = s
+                        .participants
+                        .iter()
+                        .filter(|p| p.frame.is_some())
+                        .map(|p| (p.is_self, p.classes.iter().cloned().chain(p.speaking.then(|| PROFILE_MARK.to_string())).collect()))
+                        .collect();
+                    calibrator.observe(&recordem_scrape::calibrate::Moment {
+                        tiles: marked.iter().map(|(me, c)| (*me, c.as_slice())).collect(),
+                        others_audible: audible,
+                        me_audible,
+                    });
+                    if calibrator.ready() && judged.elapsed() >= Duration::from_secs(10) {
+                        judged = Instant::now();
+                        let profile = calibrator.score(PROFILE_MARK).unwrap_or(0.0);
+                        let best = calibrator.best(TAKE_OVER).into_iter().find(|c| c.class != PROFILE_MARK);
+                        let pick = best.filter(|b| b.score >= profile + MARGIN).map(|b| (b.class, b.score));
+                        if pick.as_ref().map(|(c, _)| c) != speaking_class.as_ref() {
+                            if let Some((class, score)) = &pick {
+                                eprintln!("participants: speaking read from class {class} ({score:.2}; the profile's {profile:.2})");
+                                report(t_ms, &s, version.clone(), serde_json::json!({ "event": "calibrated", "speaking_class": class, "score": score, "profile_score": profile }));
+                            }
+                            speaking_class = pick.map(|(c, _)| c);
+                        }
+                    }
+                }
+                if let Some(class) = &speaking_class {
+                    for p in s.participants.iter_mut().filter(|p| !p.classes.is_empty()) {
+                        p.speaking = p.classes.iter().any(|c| c == class);
                     }
                 }
                 let l = line(t_ms, &s);
