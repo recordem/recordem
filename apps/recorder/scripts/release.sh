@@ -39,11 +39,16 @@ notarize() {   # $1: a .zip or .dmg
   grep -q "status: Accepted" "$OUT/notary.log" || { echo "notarization failed: see $OUT/notary.log" >&2; exit 1; }
 }
 
+staple() {     # the ticket can take a moment to reach Apple's CDN, and the lookup sometimes drops: retry
+  for i in 1 2 3 4 5; do xcrun stapler staple "$1" && return; echo "staple failed, retrying in $((i * 15)) s" >&2; sleep $((i * 15)); done
+  return 1
+}
+
 rm -rf "$OUT" && mkdir -p "$OUT/stage"
 echo "→ notarizing the app"
 ditto -c -k --keepParent "$APP" "$OUT/app.zip"
 notarize "$OUT/app.zip"
-xcrun stapler staple "$APP"
+staple "$APP"
 
 echo "→ disk image"
 ditto "$APP" "$OUT/stage/Recordem.app"
@@ -51,6 +56,6 @@ swift "$SCRIPTS/applications-alias.swift" "$OUT/stage"   # an alias with the fol
 hdiutil create -volname "Recordem" -srcfolder "$OUT/stage" -ov -format UDZO "$DMG" >/dev/null
 codesign --sign "$IDENTITY" --timestamp "$DMG"
 notarize "$DMG"
-xcrun stapler staple "$DMG"
+staple "$DMG"
 spctl -a -t open --context context:primary-signature -v "$DMG"
 echo "✓ $DMG"
