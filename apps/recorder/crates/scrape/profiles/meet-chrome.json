@@ -1,6 +1,6 @@
 {
   "id": "meet-chrome",
-  "revision": 7,
+  "revision": 8,
   "apps": [
     "com.google.Chrome",
     "company.thebrowser.Browser",
@@ -158,25 +158,8 @@
     }
   ],
   "speaking": [
-    "or",
-    [
-      "class",
-      "kssMZb"
-    ],
-    [
-      "and",
-      [
-        "class",
-        "JHK7jb"
-      ],
-      [
-        "not",
-        [
-          "class",
-          "FTMc0c"
-        ]
-      ]
-    ]
+    "class",
+    "kssMZb"
   ],
   "muted": [
     "descendant",

@@ -117,9 +117,10 @@ fn layout_dialog_is_obstruction_not_breakage() {
 #[test]
 fn presenting_merges_the_floating_window_and_skips_the_presentation_tile() {
     let s = meet().scrape(&load("presenting")).unwrap();
-    let got: Vec<_> = s.participants.iter().map(|p| (p.name.as_str(), p.speaking, p.frame.is_some())).collect();
+    let got: Vec<_> = s.participants.iter().map(|p| (p.name.as_str(), p.frame.is_some())).collect();
     // Bruno's own tile in the floating window carries a notice instead of his name; the tab still lists him.
-    assert_eq!(got, [("Ana Souza", true, true), ("Bruno Lima", false, false)]);
+    // Ana's tile has only the volume bars (JHK7jb), which move with any sound on an open mic: not "speaking".
+    assert_eq!(got, [("Ana Souza", true), ("Bruno Lima", false)]);
 }
 
 #[test]

@@ -44,7 +44,7 @@ Fixtures: every profile is tested against real AX snapshots taken with `probe du
 ## Status
 
 - [x] Meet in Chrome (pt-BR): tile = DOM class `oZRSLe`, name in `XEazBc`, speaking = `kssMZb` on the audio indicator
-      (and `FTMc0c` = silent), measured over a scripted 40 s call; fixtures in `crates/scrape/fixtures/meet-chrome/`.
+      (not `JHK7jb` without `FTMc0c`: those volume bars move with any open mic's noise), measured over a scripted 40 s call; fixtures in `crates/scrape/fixtures/meet-chrome/`.
       The classes are Google's obfuscated names: expect them to change, which is what the fixtures will catch.
 - [x] `timeline` on that call (diarization simulated by the script's phases): both voices named, shares 98–100%
 - [x] `probe video` on that call: 3840×1960 window, each tile cropped to its own mp4 (`crops.sh`, ffmpeg)
