@@ -8,3 +8,5 @@ data/
 .cert/
 # local research notes and third-party material: never committed (the repository is public)
 .research/
+# a private repository of its own
+tests/harness/

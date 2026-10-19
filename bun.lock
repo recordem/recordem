@@ -91,9 +91,6 @@
         "openapi-typescript": "7.13.0",
       },
     },
-    "tests/harness": {
-      "name": "@recordem/harness",
-    },
   },
   "packages": {
     "@asteasolutions/zod-to-openapi": ["@asteasolutions/zod-to-openapi@9.1.0", "", { "dependencies": { "openapi3-ts": "^4.6.0" }, "peerDependencies": { "zod": "^4.0.0" } }, "sha512-pLMeRgRYS7/vZIgAAkOe2P6+XGTifR1MT9pqDoxZ11EmcJJ+DPmdPqLN8ZZF4U8R9KHCCQCS9c2wtuE8wSrfkw=="],
@@ -301,8 +298,6 @@
     "@recordem/contract": ["@recordem/contract@workspace:packages/contract"],
 
     "@recordem/db": ["@recordem/db@workspace:packages/db"],
-
-    "@recordem/harness": ["@recordem/harness@workspace:tests/harness"],
 
     "@recordem/sdk": ["@recordem/sdk@workspace:packages/sdk"],
 

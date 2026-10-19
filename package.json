@@ -4,8 +4,7 @@
   "type": "module",
   "workspaces": [
     "apps/*",
-    "packages/*",
-    "tests/*"
+    "packages/*"
   ],
   "scripts": {
     "dev": "bun --filter '@recordem/auth' --filter '@recordem/api' --filter '@recordem/worker' --filter '@recordem/web' dev",
