@@ -8,7 +8,7 @@ OpenAPI contract that every client (web, CLI, MCP, SDK, integrations) is a thin 
 ```
 apps/auth/          identity provider: better-auth, organizations (= workspaces), OAuth 2.1 provider, JWKS
 apps/api/           Hono + @hono/zod-openapi: REST (/v1) and SSE (/v1/stream); verifies tokens, never logs anyone in
-apps/worker/        BullMQ workers (planned)
+apps/worker/        BullMQ workers: webhook delivery; meeting notes from a language model (any OpenAI-compatible API)
 apps/web/           portal (Vite + React): calendar, meeting page, live transcript; a client of packages/sdk
 apps/recorder/      macOS menu-bar recorder (Tauri 2, Rust): detects calls, records, transcribes locally (see its README)
 packages/contract/  zod schemas + route definitions → openapi.json

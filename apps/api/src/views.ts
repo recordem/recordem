@@ -1,5 +1,5 @@
 // Rows → the contract's shapes.
-import type { meetings, recordings, tracks, transcripts } from "@recordem/db";
+import type { meetings, notes, recordings, tracks, transcripts } from "@recordem/db";
 
 type Row<T extends { $inferSelect: unknown }> = T["$inferSelect"];
 const iso = (d: Date | null) => d?.toISOString() ?? null;
@@ -16,10 +16,16 @@ export const recordingView = (r: Row<typeof recordings>, ts: Row<typeof tracks>[
   transcript: transcript?.status ?? ("none" as const),
   tracks: ts.map(trackView),
   participants: r.participants ?? undefined,
+  attendees: r.attendees,
   ref: r.ref, metadata: r.metadata, config: r.config ?? undefined,
 });
 
 export const transcriptView = (t: Row<typeof transcripts>) => ({
   recording_id: t.recordingId, status: t.status, language: t.language, model: t.model, segments: t.segments,
   speakers: t.speakers,
+});
+
+export const notesView = (n: Row<typeof notes>) => ({
+  recording_id: n.recordingId, summary: n.summary, action_items: n.actionItems, topics: n.topics,
+  language: n.language, model: n.model, created_at: n.createdAt.toISOString(),
 });

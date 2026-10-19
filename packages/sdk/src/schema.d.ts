@@ -142,6 +142,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/recordings/{id}/notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A recording's notes: summary, action items, topics
+         * @description Written by a language model from the final transcript, which also names voices it can tell from what was said (`source: llm`). Not found until they are ready (event `notes.ready`), nor when the server has no language model configured.
+         */
+        get: operations["getNotes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/recordings/{id}/tracks/{kind}": {
         parameters: {
             query?: never;
@@ -486,6 +506,8 @@ export interface components {
             transcript: "none" | "live" | "final";
             tracks: components["schemas"]["Track"][];
             participants?: components["schemas"]["Participants"] & unknown;
+            /** @description Everyone the call app listed at some point of the recording, in the order they appeared */
+            attendees: string[];
             /** @description The creator's own id for it, as given */
             ref?: string | null;
             metadata?: {
@@ -532,7 +554,7 @@ export interface components {
              */
             url: string;
             /** @description Which event types it gets */
-            events: ("recording.created" | "recording.ended" | "recording.stop_requested" | "recording.deleted" | "meeting.deleted" | "transcript.live" | "transcript.final" | "transcript.speakers" | "participants.updated" | "track.ready")[];
+            events: ("recording.created" | "recording.ended" | "recording.stop_requested" | "recording.deleted" | "meeting.deleted" | "transcript.live" | "transcript.final" | "transcript.speakers" | "participants.updated" | "track.ready" | "notes.ready")[];
             /** Format: date-time */
             created_at: string;
             /**
@@ -548,7 +570,7 @@ export interface components {
              */
             url: string;
             /** @description Which event types it gets */
-            events: ("recording.created" | "recording.ended" | "recording.stop_requested" | "recording.deleted" | "meeting.deleted" | "transcript.live" | "transcript.final" | "transcript.speakers" | "participants.updated" | "track.ready")[];
+            events: ("recording.created" | "recording.ended" | "recording.stop_requested" | "recording.deleted" | "meeting.deleted" | "transcript.live" | "transcript.final" | "transcript.speakers" | "participants.updated" | "track.ready" | "notes.ready")[];
         };
         Me: {
             /** @description The user id, or the client id for a machine token */
@@ -577,6 +599,29 @@ export interface components {
             ends_at: string | null;
             /** Format: date-time */
             created_at: string;
+        };
+        Notes: {
+            /** Format: uuid */
+            recording_id: string;
+            summary: string;
+            action_items: components["schemas"]["ActionItem"][];
+            topics: components["schemas"]["Topic"][];
+            /** @description What they are written in: the transcript's language */
+            language: string | null;
+            /** @description The language model that wrote them */
+            model: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        ActionItem: {
+            text: string;
+            /** @description Who took it, as named in the transcript; null when nobody did */
+            owner: string | null;
+        };
+        Topic: {
+            title: string;
+            /** @description Facts, decisions and open questions, in the order discussed */
+            points: string[];
         };
         TrackUrl: {
             /**
@@ -661,7 +706,7 @@ export interface components {
             /** @description Event id (also the SSE id) */
             id: string;
             /** @enum {string} */
-            type: "recording.created" | "recording.ended" | "recording.stop_requested" | "recording.deleted" | "meeting.deleted" | "transcript.live" | "transcript.final" | "transcript.speakers" | "participants.updated" | "track.ready";
+            type: "recording.created" | "recording.ended" | "recording.stop_requested" | "recording.deleted" | "meeting.deleted" | "transcript.live" | "transcript.final" | "transcript.speakers" | "participants.updated" | "track.ready" | "notes.ready";
             /** Format: date-time */
             at: string;
             /** Format: uuid */
@@ -1196,6 +1241,55 @@ export interface operations {
             };
             /** @description Token lacks a required scope */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getNotes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The notes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Notes"];
+                };
+            };
+            /** @description Missing or invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Token lacks a required scope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found in this workspace */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

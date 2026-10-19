@@ -76,6 +76,12 @@ button:disabled { opacity: 0.45; cursor: default; }
 .player audio { flex: 1; min-width: 0; height: 36px; }
 .player select { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; background: var(--panel); }
 
+.notes { padding: 4px 8px 16px; margin-bottom: 8px; border-bottom: 1px solid var(--line); }
+.notes h3 { font-size: 13px; font-weight: 650; margin: 16px 0 6px; }
+.notes ul { margin: 0; padding-left: 20px; }
+.notes li { margin: 3px 0; }
+.notes details { margin: 4px 0; }
+.notes summary { cursor: pointer; }
 .transcript { list-style: none; margin: 0; padding: 0; }
 .transcript li { display: grid; grid-template-columns: 56px 1fr; column-gap: 12px; padding: 4px 8px; border-radius: 8px; }
 .transcript li:not(.cont) { margin-top: 14px; }

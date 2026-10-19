@@ -14,6 +14,7 @@ export type Segment = Schemas["Segment"];
 export type SpeakerName = Schemas["SpeakerName"];
 export type Participants = Schemas["Participants"];
 export type StreamEvent = Schemas["StreamEvent"];
+export type Notes = Schemas["Notes"];
 
 export type Options = {
   baseUrl: string;

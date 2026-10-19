@@ -27,6 +27,7 @@ export const recordings = pgTable("recordings", {
   endedAt: timestamp("ended_at", { withTimezone: true }),
   stopRequestedAt: timestamp("stop_requested_at", { withTimezone: true }),   // "stop" from the portal, read by the recorder
   participants: jsonb("participants").$type<Participants>(),                 // who the call app showed, last time it was read
+  attendees: jsonb("attendees").$type<string[]>().notNull().default([]),      // everyone it listed at some point, in order
   ref: text("ref"),                                                           // the creator's own id for it, as given
   metadata: jsonb("metadata").$type<Record<string, string>>().notNull().default({}),
   config: jsonb("config").$type<RecordingConfig>(),                           // what the creator asked to capture
@@ -58,6 +59,21 @@ export const transcripts = pgTable("transcripts", {
   segments: jsonb("segments").$type<Segment[]>().notNull().default([]),
   speakers: jsonb("speakers").$type<SpeakerName[]>().notNull().default([]),   // names for the voices ("system:1" → …)
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type ActionItem = { text: string; owner: string | null };
+export type Topic = { title: string; points: string[] };
+
+/** A recording's notes, written by a language model from its final transcript (apps/worker). */
+export const notes = pgTable("notes", {
+  recordingId: uuid("recording_id").primaryKey().references(() => recordings.id, { onDelete: "cascade" }),
+  workspaceId: text("workspace_id").notNull(),
+  summary: text("summary").notNull(),
+  actionItems: jsonb("action_items").$type<ActionItem[]>().notNull(),
+  topics: jsonb("topics").$type<Topic[]>().notNull(),
+  language: text("language"),
+  model: text("model").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 /** An audio file of a recording, in storage under `key`. */

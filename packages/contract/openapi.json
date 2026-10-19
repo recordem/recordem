@@ -433,6 +433,13 @@
               }
             ]
           },
+          "attendees": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Everyone the call app listed at some point of the recording, in the order they appeared"
+          },
           "ref": {
             "type": [
               "string",
@@ -457,7 +464,8 @@
           "started_at",
           "ended_at",
           "transcript",
-          "tracks"
+          "tracks",
+          "attendees"
         ]
       },
       "CreateRecording": {
@@ -576,7 +584,8 @@
                 "transcript.final",
                 "transcript.speakers",
                 "participants.updated",
-                "track.ready"
+                "track.ready",
+                "notes.ready"
               ]
             },
             "minItems": 1,
@@ -626,7 +635,8 @@
                 "transcript.final",
                 "transcript.speakers",
                 "participants.updated",
-                "track.ready"
+                "track.ready",
+                "notes.ready"
               ]
             },
             "minItems": 1,
@@ -735,6 +745,92 @@
           "starts_at",
           "ends_at",
           "created_at"
+        ]
+      },
+      "Notes": {
+        "type": "object",
+        "properties": {
+          "recording_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "action_items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActionItem"
+            }
+          },
+          "topics": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Topic"
+            }
+          },
+          "language": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What they are written in: the transcript's language"
+          },
+          "model": {
+            "type": "string",
+            "description": "The language model that wrote them"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "recording_id",
+          "summary",
+          "action_items",
+          "topics",
+          "language",
+          "model",
+          "created_at"
+        ]
+      },
+      "ActionItem": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "owner": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Who took it, as named in the transcript; null when nobody did"
+          }
+        },
+        "required": [
+          "text",
+          "owner"
+        ]
+      },
+      "Topic": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "points": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Facts, decisions and open questions, in the order discussed"
+          }
+        },
+        "required": [
+          "title",
+          "points"
         ]
       },
       "TrackUrl": {
@@ -1007,7 +1103,8 @@
               "transcript.final",
               "transcript.speakers",
               "participants.updated",
-              "track.ready"
+              "track.ready",
+              "notes.ready"
             ]
           },
           "at": {
@@ -1799,6 +1896,80 @@
           },
           "403": {
             "description": "Token lacks a required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/recordings/{id}/notes": {
+      "get": {
+        "operationId": "getNotes",
+        "tags": [
+          "recordings"
+        ],
+        "summary": "A recording's notes: summary, action items, topics",
+        "description": "Written by a language model from the final transcript, which also names voices it can tell from what was said (`source: llm`). Not found until they are ready (event `notes.ready`), nor when the server has no language model configured.",
+        "security": [
+          {
+            "oauth2": [
+              "transcripts:read"
+            ]
+          }
+        ],
+        "x-scopes": [
+          "transcripts:read"
+        ],
+        "x-upload": false,
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The notes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Notes"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token lacks a required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found in this workspace",
             "content": {
               "application/json": {
                 "schema": {

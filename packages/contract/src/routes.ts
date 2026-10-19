@@ -1,7 +1,7 @@
 // Every route of the API. apps/api implements them; nothing else is served under /v1.
 import { createRoute, z } from "@hono/zod-openapi";
 import {
-  ContextRequest, CreatedRecording, CreatedWebhook, CreateRecording, CreateWebhook, ErrorBody, FinalTranscript, LiveAck, LiveBatch, Match, Me, Meeting, MeetingDetail, NameSpeaker, Page,
+  ContextRequest, CreatedRecording, CreatedWebhook, CreateRecording, CreateWebhook, ErrorBody, FinalTranscript, LiveAck, LiveBatch, Match, Me, Meeting, MeetingDetail, NameSpeaker, Notes, Page,
   ReaderProfiles, Recording, StreamEvent, Transcript, Track, TrackUrl, UpdateMeeting, MoveRecording, WebhookEndpoint,
 } from "./schemas";
 import type { Scope } from "./scopes";
@@ -95,6 +95,15 @@ export const nameSpeaker = createRoute({
   ...needs("meetings:write"),
   request: { params: id, ...body(NameSpeaker) },
   responses: { 200: json(Transcript, "The transcript"), ...errors, ...notFound },
+});
+
+export const getNotes = createRoute({
+  method: "get", path: "/v1/recordings/{id}/notes", operationId: "getNotes", tags: ["recordings"],
+  summary: "A recording's notes: summary, action items, topics",
+  description: "Written by a language model from the final transcript, which also names voices it can tell from what was said (`source: llm`). Not found until they are ready (event `notes.ready`), nor when the server has no language model configured.",
+  ...needs("transcripts:read"),
+  request: { params: id },
+  responses: { 200: json(Notes, "The notes"), ...errors, ...notFound },
 });
 
 const trackParams = z.object({ id: z.string().uuid(), kind: z.enum(["mix", "mic_hq"]) });

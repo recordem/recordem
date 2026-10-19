@@ -272,7 +272,8 @@ pub fn read(dir: &Path) -> Vec<Line> {
 /// Names the other side's lines after the pass after the call (`crates/timeline::attribute`): each line gets its
 /// voice's name, else the person shown speaking during it, else the only person it could be. Lines are relabelled one label per person, then per
 /// voice nobody was named for ("system:1", "system:2", … by first appearance); a line of a voice too small to be one
-/// gets no label. The names, with how clear the evidence was on average (by time) as the confidence.
+/// gets no label. The names, with how clear the evidence was on average (by time) as the confidence, and the person on
+/// this Mac's for the mic lines.
 pub fn name_lines(lines: &[Line], segments: &mut [Segment]) -> Vec<SpeakerName> {
     let opts = Options::default();
     let (intervals, rolls) = evidence(lines, &opts);
@@ -305,14 +306,14 @@ pub fn name_lines(lines: &[Line], segments: &mut [Segment]) -> Vec<SpeakerName> 
         });
         segments[i].speaker = Some(format!("system:{}", k + 1));
     }
-    keys.iter()
-        .enumerate()
-        .filter(|(_, (person, _))| *person)
-        .map(|(k, (_, name))| {
-            let (w, d) = clarity[name];
-            SpeakerName { label: format!("system:{}", k + 1), name: name.clone(), source: "platform".into(), confidence: Some((w / d as f64 * 100.0).round() / 100.0) }
-        })
-        .collect()
+    let others = keys.iter().enumerate().filter(|(_, (person, _))| *person).map(|(k, (_, name))| {
+        let (w, d) = clarity[name];
+        SpeakerName { label: format!("system:{}", k + 1), name: name.clone(), source: "platform".into(), confidence: Some((w / d as f64 * 100.0).round() / 100.0) }
+    });
+    let mine = me(lines)
+        .filter(|_| segments.iter().any(|s| s.channel == "mic"))
+        .map(|name| SpeakerName { label: "mic".into(), name, source: "platform".into(), confidence: None });
+    others.chain(mine).collect()
 }
 
 /// While the call goes on, each line of the other side is named after whoever the call app showed speaking during it
@@ -370,10 +371,12 @@ mod tests {
         for t in (10_000..20_000).step_by(500) {
             lines.push(Line { t_ms: t, visible: true, speaking: vec!["Carla Dias".into()], people: vec![], muted: vec![], self_name: None });
         }
-        let mut segs = [seg("system:1", 300, 9_800), seg("system:2", 10_300, 19_800), seg("system:3", 4_000, 4_400)];
+        let mic = Segment { channel: "mic".into(), ..seg("mic", 2_000, 3_000) };
+        let mut segs = [seg("system:1", 300, 9_800), seg("system:2", 10_300, 19_800), seg("system:3", 4_000, 4_400), mic];
         let names: std::collections::HashMap<_, _> = name_lines(&lines, &mut segs).into_iter().map(|n| (n.label, n.name)).collect();
         assert_eq!(names.get("system:1").map(String::as_str), Some("Ana Souza"));
         assert_eq!(names.get("system:2").map(String::as_str), Some("Carla Dias"));
+        assert_eq!(names.get("mic").map(String::as_str), Some("Bruno Lima"), "the person on this Mac");
         assert_eq!(segs[2].speaker.as_deref(), Some("system:1"), "a voice of one short line still gets who was shown");
     }
 
@@ -385,7 +388,7 @@ mod tests {
             .collect();
         let mut segs = [seg("system:1", 1_000, 13_000), seg("system:1", 15_000, 25_000)];
         let names = name_lines(&lines, &mut segs);
-        assert_eq!(names.iter().map(|n| (n.label.as_str(), n.name.as_str())).collect::<Vec<_>>(), [("system:1", "Ana Souza")]);
+        assert_eq!(names.iter().map(|n| (n.label.as_str(), n.name.as_str())).collect::<Vec<_>>(), [("system:1", "Ana Souza")], "no mic lines, no mic name");
         assert_eq!(names[0].confidence, Some(0.5), "a guess, not something the app showed");
     }
 
@@ -408,7 +411,8 @@ mod tests {
     }
 
     /// A recorded call's names, again: `RECORDEM_CALL_DIR=<recording folder> cargo test --release -- --ignored
-    /// names_of_a_call --nocapture` (speakers.jsonl and transcript.json from the recorder's folder).
+    /// names_of_a_call --nocapture` (speakers.jsonl and transcript.json from the recorder's folder). The transcript
+    /// with the new names goes to transcript.named.json there, to send in place of the old one.
     #[test]
     #[ignore]
     fn names_of_a_call() {
@@ -425,12 +429,14 @@ mod tests {
             }
         }
         eprintln!("overlap: {by:?}");
-        let mut segs = t.segments.clone();
-        for n in name_lines(&lines, &mut segs) {
-            let lines = segs.iter().filter(|s| s.speaker.as_deref() == Some(n.label.as_str())).count();
+        let mut segments = t.segments.clone();
+        let speakers = name_lines(&lines, &mut segments);
+        for n in &speakers {
+            let lines = segments.iter().filter(|s| s.speaker.as_deref() == Some(n.label.as_str())).count();
             eprintln!("{} {} confidence {:?}, {lines} lines", n.label, n.name, n.confidence);
         }
-        eprintln!("unnamed: {} lines", segs.iter().filter(|s| s.channel == "system" && !t.speakers.is_empty() && s.speaker.is_none()).count());
+        let named = crate::api::Transcript { segments, speakers, ..t };
+        std::fs::write(dir.join("transcript.named.json"), serde_json::to_vec(&named).unwrap()).unwrap();
     }
 
     #[test]

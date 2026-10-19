@@ -1,13 +1,16 @@
-// Background work, off the request path. For now: webhooks. Each event the api publishes comes on the `events` queue;
-// it becomes one delivery per endpoint of the workspace that wants that type, POSTed signed and retried for 3 days.
-// An endpoint still failing after that is turned off (the api lists it with disabled_at).
-import { connect, webhooks } from "@recordem/db";
+// Background work, off the request path. Each event the api publishes comes on the `events` queue:
+// - webhooks: it becomes one delivery per endpoint of the workspace that wants that type, POSTed signed and retried for
+//   3 days. An endpoint still failing after that is turned off (the api lists it with disabled_at).
+// - notes: a final transcript is read by a language model (notes.ts), when one is configured (llm.ts).
+import { connect, meetings, notes, recordings, transcripts, webhooks } from "@recordem/db";
 import { Queue, Worker, type Job } from "bullmq";
 import { and, eq, isNull } from "drizzle-orm";
 import IORedis from "ioredis";
 import { createHmac } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
+import * as llm from "./llm";
+import { takeNotes } from "./notes";
 
 const env = (k: string, d?: string) => process.env[k] ?? d ?? (() => { throw new Error(`${k} is not set`); })();
 const db = connect(env("DATABASE_URL"));
@@ -20,9 +23,15 @@ const DELAYS = [60, 300, 1800, 7200, 21600, 43200, 86400, 86400].map((s) => s * 
 const GIVE_UP_MS = 3 * 86400_000;
 
 const deliveries = new Queue("deliveries", { connection });
+const noteTaking = new Queue("notes", { connection });
 
 new Worker<{ workspace: string; event: Event }>("events", async (job) => {
   const { workspace, event } = job.data;
+  if (event.type === "transcript.final" && event.recording_id && llm.enabled) {
+    await noteTaking.add("notes", { workspace, recording: event.recording_id }, {
+      jobId: `notes.${event.id}`, attempts: 3, backoff: { type: "exponential", delay: 60_000 }, removeOnComplete: 1000, removeOnFail: 5000,
+    });
+  }
   const hooks = await db.select({ id: webhooks.id, events: webhooks.events }).from(webhooks)
     .where(and(eq(webhooks.workspaceId, workspace), isNull(webhooks.disabledAt)));
   for (const h of hooks.filter((h) => h.events.includes(event.type))) {
@@ -77,4 +86,49 @@ worker.on("failed", async (job, err) => {
   console.error(`webhook ${h.id}: ${err.message}${off ? " (turned off)" : ""}`);
 });
 
-console.log("worker: webhooks");
+/** Publishes an event as the api does (events.ts there): live to the workspace's listeners, and to its webhooks. */
+const pub = new IORedis(env("REDIS_URL", "redis://localhost:39421"));
+const events = new Queue("events", { connection });
+async function publish(workspace: string, e: Omit<Event, "id" | "at">) {
+  const event: Event = { id: crypto.randomUUID(), at: new Date().toISOString(), ...e };
+  await pub.publish(`recordem:ws:${workspace}`, JSON.stringify(event));
+  await events.add("event", { workspace, event }, { removeOnComplete: 1000, removeOnFail: 5000 });
+}
+
+/** The notes of a recording's final transcript, and names for the voices nobody named that the notes could tell. */
+async function noteTake(job: Job<{ workspace: string; recording: string }>) {
+  const { workspace, recording: id } = job.data;
+  const [row] = await db.select({ r: recordings, t: transcripts, title: meetings.title }).from(recordings)
+    .innerJoin(transcripts, eq(transcripts.recordingId, recordings.id)).innerJoin(meetings, eq(meetings.id, recordings.meetingId))
+    .where(and(eq(recordings.id, id), eq(recordings.workspaceId, workspace)));
+  if (!row || row.t.status !== "final") return;
+  const { r, t, title } = row;
+  const me = t.speakers.find((s) => s.label === "mic")?.name ?? null;
+  const taken = await takeNotes({ title, language: t.language, segments: t.segments, speakers: t.speakers, participants: r.attendees, me });
+  for (const g of taken.guesses) {
+    const kept = taken.named.find((n) => n.label === g.label);
+    console.log(`notes ${id}: ${g.label} ${kept ? `is ${kept.name}` : `not named ${g.name}`} (${g.evidence}: ${g.quote})`);
+  }
+
+  const { summary, action_items: actionItems, topics } = taken.notes;
+  const values = { summary, actionItems, topics, language: t.language, model: llm.MODEL, createdAt: new Date() };
+  await db.insert(notes).values({ recordingId: id, workspaceId: workspace, ...values }).onConflictDoUpdate({ target: notes.recordingId, set: values });
+  const ev = { meeting_id: r.meetingId, recording_id: id };
+  if (taken.named.length) {
+    // Only voices still unnamed: the call app's names and names set by hand (maybe since the model read it) stay.
+    const speakers = await db.transaction(async (tx) => {
+      const [now] = await tx.select({ speakers: transcripts.speakers }).from(transcripts).where(eq(transcripts.recordingId, id)).for("update");
+      const added = taken.named.filter((n) => !now.speakers.some((s) => s.label === n.label));
+      if (!added.length) return null;
+      const all = [...now.speakers, ...added];
+      await tx.update(transcripts).set({ speakers: all, updatedAt: new Date() }).where(eq(transcripts.recordingId, id));
+      return all;
+    });
+    if (speakers) await publish(workspace, { type: "transcript.speakers", ...ev, data: { speakers } });
+  }
+  await publish(workspace, { type: "notes.ready", ...ev, data: {} });
+}
+
+new Worker("notes", noteTake, { connection, concurrency: 2 });
+
+console.log(`worker: webhooks${llm.enabled ? `, notes (${llm.MODEL})` : " (notes off: no LLM_API_KEY)"}`);

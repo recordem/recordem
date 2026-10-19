@@ -1,6 +1,6 @@
-// A meeting: its recording's transcript with names on the voices, a player where a line's time seeks to it, and,
-// while the call goes on, the transcript growing live over the event stream.
-import type { MeetingDetail, Participants, Recording, Segment, Transcript } from "@recordem/sdk";
+// A meeting: its recording's notes and transcript with names on the voices, a player where a line's time seeks to it,
+// and, while the call goes on, the transcript growing live over the event stream.
+import type { MeetingDetail, Notes, Participants, Recording, Segment, Transcript } from "@recordem/sdk";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { callApp, clock, day, duration, speakerName, time } from "./format";
@@ -141,6 +141,7 @@ function Frame({ children }: { children: React.ReactNode }) {
 function RecordingView({ rec, onChange }: { rec: Recording; onChange: () => void }) {
   const [t, setT] = useState<Transcript | null>(null);
   const [missing, setMissing] = useState(false);
+  const [notes, setNotes] = useState<Notes | null>(null);
   // The whole call by default; tracks can arrive after the page opened (the upload follows the transcript).
   const [chosen, setTrack] = useState<"mix" | "mic_hq" | null>(null);
   const track = chosen ?? (rec.tracks.some((x) => x.kind === "mix") ? "mix" : rec.tracks[0]?.kind ?? null);
@@ -157,6 +158,13 @@ function RecordingView({ rec, onChange }: { rec: Recording; onChange: () => void
     if (data) { setT(data); setMissing(false); } else if (response.status === 404) setMissing(true);
   }, [rec.id]);
   useEffect(() => { void loadTranscript(); }, [loadTranscript]);
+
+  // Written after the call, when the server has a language model; not found until then.
+  const loadNotes = useCallback(async () => {
+    const { data } = await api.GET("/v1/recordings/{id}/notes", { params: { path: { id: rec.id } } });
+    setNotes(data ?? null);
+  }, [rec.id]);
+  useEffect(() => { void loadNotes(); }, [loadNotes]);
 
   useEffect(() => {
     if (!track) return;
@@ -182,10 +190,11 @@ function RecordingView({ rec, onChange }: { rec: Recording; onChange: () => void
           setT((cur) => cur && { ...cur, speakers });
         }
         if (e.type === "transcript.final" || e.type === "recording.ended" || e.type === "track.ready") { void loadTranscript(); onChange(); }
+        if (e.type === "notes.ready") void loadNotes();
       },
     });
     return () => ctl.abort();
-  }, [rec.id, loadTranscript, onChange]);
+  }, [rec.id, loadTranscript, loadNotes, onChange]);
 
   useEffect(() => { if (live) bottom.current?.scrollIntoView({ block: "end", behavior: "smooth" }); }, [live, t?.segments.length]);
 
@@ -226,6 +235,7 @@ function RecordingView({ rec, onChange }: { rec: Recording; onChange: () => void
           )}
         </div>
       )}
+      {notes && <NotesView n={notes} />}
       {missing && !live && <p className="muted">No transcript for this recording.</p>}
       <ol className="transcript">
         {segs.map((s, i) => {
@@ -245,6 +255,28 @@ function RecordingView({ rec, onChange }: { rec: Recording; onChange: () => void
       </ol>
       <div ref={bottom} />
     </>
+  );
+}
+
+/** The summary, who does what next, and the topics, folded. */
+function NotesView({ n }: { n: Notes }) {
+  return (
+    <section className="notes">
+      <p>{n.summary}</p>
+      {n.action_items.length > 0 && (
+        <>
+          <h3>Action items</h3>
+          <ul>{n.action_items.map((a, i) => <li key={i}>{a.text}{a.owner && <span className="muted"> — {a.owner}</span>}</li>)}</ul>
+        </>
+      )}
+      {n.topics.length > 0 && <h3>Topics</h3>}
+      {n.topics.map((t, i) => (
+        <details key={i}>
+          <summary>{t.title}</summary>
+          <ul>{t.points.map((p, j) => <li key={j}>{p}</li>)}</ul>
+        </details>
+      ))}
+    </section>
   );
 }
 

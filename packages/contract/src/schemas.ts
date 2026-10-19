@@ -103,6 +103,7 @@ export const Recording = z.object({
   transcript: z.enum(["none", "live", "final"]),
   tracks: z.array(Track),
   participants: Participants.optional().openapi({ description: "Who the call app showed in the call, last time the recorder read it; absent when it couldn't" }),
+  attendees: z.array(z.string()).openapi({ description: "Everyone the call app listed at some point of the recording, in the order they appeared" }),
   ref: z.string().nullable().optional().openapi({ description: "The creator's own id for it, as given" }),
   metadata: z.record(z.string(), z.string()).optional(),
   config: RecordingConfig.optional().openapi({ description: "What the creator asked to capture" }),
@@ -144,6 +145,26 @@ export const Transcript = z.object({
   speakers: z.array(SpeakerName).openapi({ description: "Names for the voices; a label not listed has none" }),
 }).openapi("Transcript");
 
+export const ActionItem = z.object({
+  text: z.string(),
+  owner: z.string().nullable().openapi({ description: "Who took it, as named in the transcript; null when nobody did" }),
+}).openapi("ActionItem");
+
+export const Topic = z.object({
+  title: z.string(),
+  points: z.array(z.string()).openapi({ description: "Facts, decisions and open questions, in the order discussed" }),
+}).openapi("Topic");
+
+export const Notes = z.object({
+  recording_id: z.string().uuid(),
+  summary: z.string(),
+  action_items: z.array(ActionItem),
+  topics: z.array(Topic),
+  language: z.string().nullable().openapi({ description: "What they are written in: the transcript's language" }),
+  model: z.string().openapi({ description: "The language model that wrote them" }),
+  created_at: datetime(),
+}).openapi("Notes");
+
 export const NameSpeaker = z.object({
   label: z.string().max(40).openapi({ example: "system:1" }),
   name: z.string().trim().max(200).nullable().openapi({ description: "null or empty: the voice goes back to unnamed" }),
@@ -158,7 +179,7 @@ export const TrackUrl = z.object({
 
 export const StreamEvent = z.object({
   id: z.string().openapi({ description: "Event id (also the SSE id)" }),
-  type: z.enum(["recording.created", "recording.ended", "recording.stop_requested", "recording.deleted", "meeting.deleted", "transcript.live", "transcript.final", "transcript.speakers", "participants.updated", "track.ready"]),
+  type: z.enum(["recording.created", "recording.ended", "recording.stop_requested", "recording.deleted", "meeting.deleted", "transcript.live", "transcript.final", "transcript.speakers", "participants.updated", "track.ready", "notes.ready"]),
   at: datetime(),
   meeting_id: z.string().uuid(),
   recording_id: z.string().uuid().nullable().openapi({ description: "null for meeting.deleted" }),

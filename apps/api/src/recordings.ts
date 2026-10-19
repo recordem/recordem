@@ -2,7 +2,7 @@
 // audio) and how anyone with the right scope reads it back. Every query is scoped to the token's workspace.
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import { routes } from "@recordem/contract";
-import { meetings, recordings, tracks, transcripts, type Db, type Segment, type SpeakerName } from "@recordem/db";
+import { meetings, notes, recordings, tracks, transcripts, type Db, type Segment, type SpeakerName } from "@recordem/db";
 import { and, asc, eq, inArray, lte, sql } from "drizzle-orm";
 import { HTTPException } from "hono/http-exception";
 import { streamSSE } from "hono/streaming";
@@ -11,7 +11,7 @@ import { callKey } from "./callkey";
 import { listen, publish } from "./events";
 import { publicOrigin, storage } from "./storage";
 import { uploadToken } from "./upload";
-import { meetingView, recordingView, trackView, transcriptView } from "./views";
+import { meetingView, notesView, recordingView, trackView, transcriptView } from "./views";
 
 const notFound = (what: string) => new HTTPException(404, { res: Response.json({ error: "not_found", message: `${what} not found` }, { status: 404 }) });
 const badRequest = (message: string) => new HTTPException(400, { res: Response.json({ error: "bad_request", message }, { status: 400 }) });
@@ -199,7 +199,9 @@ export function mount(app: OpenAPIHono<Env>, db: Db) {
       }).where(eq(recordings.id, r.id));
     }
     if (b.participants) {
-      await db.update(recordings).set({ participants: b.participants }).where(eq(recordings.id, r.id));
+      // Who is in the call now, and everyone who was at some point (the call ends with nobody listed).
+      const joined = b.participants.people.map((p) => p.name).filter((n) => !r.attendees.includes(n));
+      await db.update(recordings).set({ participants: b.participants, attendees: [...r.attendees, ...new Set(joined)] }).where(eq(recordings.id, r.id));
       await publish(a.workspace, { type: "participants.updated", ...ev, data: b.participants });
     }
     const held = t?.segments ?? [];
@@ -275,6 +277,13 @@ export function mount(app: OpenAPIHono<Env>, db: Db) {
     const [t] = await db.select().from(transcripts).where(eq(transcripts.recordingId, r.id));
     if (!t) throw notFound("transcript");
     return c.json(transcriptView(t), 200);
+  });
+
+  app.openapi(routes.getNotes, async (c) => {
+    const r = await recording(c.get("actor"), c.req.valid("param").id);
+    const [n] = await db.select().from(notes).where(eq(notes.recordingId, r.id));
+    if (!n) throw notFound("notes");
+    return c.json(notesView(n), 200);
   });
 
   const AUDIO = new Set(["audio/mp4", "audio/ogg", "audio/flac"]);
