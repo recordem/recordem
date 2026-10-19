@@ -3,7 +3,9 @@
 // the app showed speaking during it (`attribute`). A voice that got a name keeps it on every line: the app's mark
 // lingers a second or two on whoever spoke last, so a short reply right after them would take their name (Meet,
 // Oct 2026). Lines of a voice with no clear name (a cluster of everyone's "yeah", one too small) take the person
-// the app showed during each of them.
+// the app showed during each of them. When the app showed nobody (another tab in front, a reader that broke), who
+// was in the call and who was muted can still leave a single person: the other one in a 1:1, the one not muted, the
+// last one without a voice.
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -60,16 +62,21 @@ pub struct Options {
     pub pad_before_ms: u64,
     pub pad_after_ms: u64,
     pub pad_weight: f64,
+    /// A line is someone's when they had this share of the time anyone was shown speaking around it: with several
+    /// shown at once (a broken reader, crosstalk), it is nobody's.
+    pub line_share: f64,
     /// A voice's name needs this share of its lines' named time and this share of all its time.
     pub voice_coverage: f64,
     /// A voice with less speech than this, in a call where another has more, is diarization noise (a cluster of
     /// everyone's "yeah"): its lines get the person the app showed or nobody.
     pub small_voice_ms: u64,
+    /// A roll (who is listed, who is muted) holds this long without a newer one.
+    pub roll_hold_ms: u64,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { max_gap_ms: 1_500, lag_ms: 300, min_share: 0.6, lead: 1.5, min_lead_share: 0.45, min_overlap_ms: 2_000, stale_ms: 8_000, pad_before_ms: 500, pad_after_ms: 300, pad_weight: 0.25, voice_coverage: 0.25, small_voice_ms: 10_000 }
+        Options { max_gap_ms: 1_500, lag_ms: 300, min_share: 0.6, lead: 1.5, min_lead_share: 0.45, min_overlap_ms: 2_000, stale_ms: 8_000, pad_before_ms: 500, pad_after_ms: 300, pad_weight: 0.25, line_share: 0.6, voice_coverage: 0.25, small_voice_ms: 10_000, roll_hold_ms: 6_000 }
     }
 }
 
@@ -184,17 +191,53 @@ pub fn assign(turns: &[Turn], intervals: &[Interval], opts: &Options) -> Vec<Ass
     out
 }
 
+/// Who the app listed at a moment besides the person on this Mac, and which of them it showed muted. Each holds until
+/// the next one, for at most `Options::roll_hold_ms`, like the samples.
+#[derive(Debug, Clone, Default)]
+pub struct Roll {
+    pub t_ms: u64,
+    pub present: Vec<String>,
+    pub muted: Vec<String>,
+}
+
+/// How a line got its person.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum By {
+    /// The name of its voice: the vote of the voice's lines.
+    Voice,
+    /// The only person its voice could be (`eliminate`).
+    Elimination,
+    /// The person the app showed speaking during the line.
+    Shown,
+    /// The only person who could have spoken it (`only_one_at`).
+    Alone,
+}
+
 /// Who said a line.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Who {
-    /// A person: the name of the line's voice, or shown speaking during the line (`by_line`). `share`: how clear.
-    Person { name: String, share: f64, by_line: bool },
+    /// `share`: how clear the evidence was.
+    Person { name: String, share: f64, by: By },
     /// A voice nobody could be named for.
     Voice(String),
     Nobody,
 }
 
-/// The person the app showed speaking most during a turn (and a little around it), with their share of it.
+/// What a guess by elimination is worth: nobody was shown speaking, only nobody else could have been.
+const ELIMINATED: f64 = 0.5;
+
+impl Turn {
+    fn duration_ms(&self) -> u64 {
+        self.end_ms.saturating_sub(self.start_ms)
+    }
+
+    fn middle_ms(&self) -> u64 {
+        self.start_ms + self.duration_ms() / 2
+    }
+}
+
+/// The person the app showed speaking during a turn (and a little around it), with their share of that time, when
+/// it is clearly them (`Options::line_share`).
 pub fn line_name(turn: &Turn, intervals: &[Interval], opts: &Options) -> Option<(String, f64)> {
     let (s, e) = (turn.start_ms, turn.end_ms);
     let (ps, pe) = (s.saturating_sub(opts.pad_before_ms), e + opts.pad_after_ms);
@@ -209,47 +252,147 @@ pub fn line_name(turn: &Turn, intervals: &[Interval], opts: &Options) -> Option<
     }
     let total: f64 = by.values().sum();
     let (name, w) = by.into_iter().max_by(|a, b| a.1.total_cmp(&b.1).then(b.0.cmp(a.0)))?;
-    Some((name.to_string(), w / total))
+    let share = w / total;
+    (share >= opts.line_share).then(|| (name.to_string(), share))
 }
 
-/// Who said each turn: its voice's name (the vote of its lines, weighed by duration: `min_share` of the named time,
-/// `voice_coverage` of all of it, `min_overlap_ms` at least), else the person shown during it, else the voice,
-/// unless it is too small to be one. Several voices can get one name; a voice never gets two.
-pub fn attribute(turns: &[Turn], intervals: &[Interval], opts: &Options) -> Vec<Who> {
-    let lines: Vec<Option<(String, f64)>> = turns.iter().map(|t| line_name(t, intervals, opts)).collect();
-    let mut length: HashMap<&str, u64> = HashMap::new();
-    let mut votes: HashMap<&str, HashMap<&str, u64>> = HashMap::new();
-    for (t, l) in turns.iter().zip(&lines) {
-        if t.label.is_empty() {
-            continue;
-        }
-        let d = t.end_ms.saturating_sub(t.start_ms);
-        *length.entry(&t.label).or_default() += d;
-        if let Some((name, _)) = l {
-            *votes.entry(&t.label).or_default().entry(name.as_str()).or_default() += d;
-        }
-    }
-    let mut voice: HashMap<&str, (String, f64)> = HashMap::new();
-    for (label, v) in &votes {
-        let named: u64 = v.values().sum();
-        let Some((name, &d)) = v.iter().max_by(|a, b| a.1.cmp(b.1).then(b.0.cmp(a.0))) else { continue };
-        let share = d as f64 / named as f64;
-        if d >= opts.min_overlap_ms && share >= opts.min_share && d as f64 >= opts.voice_coverage * length[label] as f64 {
-            voice.insert(label, (name.to_string(), share));
-        }
-    }
-    let longest = length.values().copied().max().unwrap_or(0);
+/// Who said each turn, from the clearest evidence there is:
+/// 1. the name of its voice, by the vote of the voice's lines for who was shown speaking during each;
+/// 2. or the only person its voice could be;
+/// 3. or who was shown speaking during the line itself;
+/// 4. or the only person who could have spoken it;
+/// 5. or its voice, unnamed, unless the voice is too small to be one.
+///
+/// A named voice keeps its name on every line: the app's mark lingers a second or two on whoever spoke last, so a
+/// short reply right after them would otherwise take their name (Meet, Oct 2026). Several voices can get one name;
+/// a voice never gets two.
+pub fn attribute(turns: &[Turn], intervals: &[Interval], rolls: &[Roll], opts: &Options) -> Vec<Who> {
+    let shown: Vec<Option<(String, f64)>> = turns.iter().map(|t| line_name(t, intervals, opts)).collect();
+    let voices = Voices::of(turns, opts);
+    let mut named = voices.voted(turns, &shown, opts);
+    voices.eliminate(&mut named, turns, &shown, rolls, opts);
     turns
         .iter()
-        .zip(lines)
-        .map(|(t, l)| match (voice.get(t.label.as_str()), l) {
-            (Some((name, share)), _) => Who::Person { name: name.clone(), share: *share, by_line: false },
-            (None, Some((name, share))) => Who::Person { name, share, by_line: true },
-            (None, None) if t.label.is_empty() => Who::Nobody,
-            (None, None) if length[t.label.as_str()] < opts.small_voice_ms && longest >= opts.small_voice_ms => Who::Nobody,
-            (None, None) => Who::Voice(t.label.clone()),
+        .zip(shown)
+        .map(|(t, shown)| {
+            if let Some((name, share, by)) = named.get(t.label.as_str()) {
+                return Who::Person { name: name.clone(), share: *share, by: *by };
+            }
+            if let Some((name, share)) = shown {
+                return Who::Person { name, share, by: By::Shown };
+            }
+            if let Some(name) = only_one_at(rolls, t.middle_ms(), opts) {
+                return Who::Person { name, share: ELIMINATED, by: By::Alone };
+            }
+            if voices.real(&t.label) { Who::Voice(t.label.clone()) } else { Who::Nobody }
         })
         .collect()
+}
+
+/// The diarized voices: the turns of each, and how long it spoke.
+struct Voices<'a> {
+    lines: HashMap<&'a str, Vec<usize>>,
+    length_ms: HashMap<&'a str, u64>,
+    /// Below this a voice is diarization noise (`Options::small_voice_ms`), when another spoke for longer.
+    noise_below_ms: u64,
+}
+
+type Named<'a> = HashMap<&'a str, (String, f64, By)>;
+
+impl<'a> Voices<'a> {
+    fn of(turns: &'a [Turn], opts: &Options) -> Voices<'a> {
+        let (mut lines, mut length_ms) = (HashMap::<&str, Vec<usize>>::new(), HashMap::<&str, u64>::new());
+        for (i, t) in turns.iter().enumerate().filter(|(_, t)| !t.label.is_empty()) {
+            lines.entry(&t.label).or_default().push(i);
+            *length_ms.entry(&t.label).or_default() += t.duration_ms();
+        }
+        let longest = length_ms.values().copied().max().unwrap_or(0);
+        Voices { lines, length_ms, noise_below_ms: if longest >= opts.small_voice_ms { opts.small_voice_ms } else { 0 } }
+    }
+
+    /// A voice, and not diarization noise.
+    fn real(&self, label: &str) -> bool {
+        self.length_ms.get(label).is_some_and(|&l| l >= self.noise_below_ms)
+    }
+
+    /// Each voice's name by the vote of its lines, weighed by duration: the winner needs `min_share` of the named
+    /// time, `voice_coverage` of all of it, and `min_overlap_ms` at least.
+    fn voted(&self, turns: &[Turn], shown: &[Option<(String, f64)>], opts: &Options) -> Named<'a> {
+        let mut named = Named::new();
+        for (&label, lines) in &self.lines {
+            let mut votes: HashMap<&str, u64> = HashMap::new();
+            for &i in lines {
+                if let Some((name, _)) = &shown[i] {
+                    *votes.entry(name).or_default() += turns[i].duration_ms();
+                }
+            }
+            let total: u64 = votes.values().sum();
+            let Some((name, ms)) = votes.into_iter().max_by(|a, b| a.1.cmp(&b.1).then(b.0.cmp(a.0))) else { continue };
+            let share = ms as f64 / total as f64;
+            if ms >= opts.min_overlap_ms && share >= opts.min_share && ms as f64 >= opts.voice_coverage * self.length_ms[label] as f64 {
+                named.insert(label, (name.to_string(), share, By::Voice));
+            }
+        }
+        named
+    }
+
+    /// Names the voices the app never showed when only one person can be them (`only_one`): in a call with one other
+    /// person, that person; in a bigger one, the last one left. A name given here can leave another voice a single
+    /// person, so it repeats until nothing changes. Noise, and voices with lines shown as someone (diarization's mix of
+    /// everyone's "yeah", which the vote couldn't name), are left out.
+    fn eliminate(&self, named: &mut Named<'a>, turns: &[Turn], shown: &[Option<(String, f64)>], rolls: &[Roll], opts: &Options) {
+        loop {
+            let taken: HashSet<&str> = named.values().map(|(name, ..)| name.as_str()).collect();
+            let found: Vec<(&'a str, String)> = self
+                .lines
+                .iter()
+                .filter(|(label, lines)| !named.contains_key(*label) && self.real(label) && lines.iter().all(|&i| shown[i].is_none()))
+                .filter_map(|(&label, lines)| Some((label, only_one(lines, turns, rolls, &taken, opts)?)))
+                .collect();
+            if found.is_empty() {
+                return;
+            }
+            for (label, name) in found {
+                named.insert(label, (name, ELIMINATED, By::Elimination));
+            }
+        }
+    }
+}
+
+/// The one person a voice could be, if there is exactly one: listed while it spoke, not muted during most of the time
+/// it was read, and not the name of another voice.
+fn only_one(lines: &[usize], turns: &[Turn], rolls: &[Roll], taken: &HashSet<&str>, opts: &Options) -> Option<String> {
+    let mut present: HashSet<&str> = HashSet::new();
+    let mut muted_ms: HashMap<&str, u64> = HashMap::new();
+    let mut read_ms = 0;
+    for &i in lines {
+        let Some(roll) = roll_at(rolls, turns[i].middle_ms(), opts) else { continue };
+        let d = turns[i].duration_ms();
+        read_ms += d;
+        present.extend(roll.present.iter().map(String::as_str));
+        for m in &roll.muted {
+            *muted_ms.entry(m).or_default() += d;
+        }
+    }
+    let mostly_muted = |p: &str| 2 * muted_ms.get(p).copied().unwrap_or(0) > read_ms;
+    single(present.into_iter().filter(|p| !taken.contains(p) && !mostly_muted(p)))
+}
+
+/// The only person who could have spoken at `t`: the one other person listed, or the one of them not muted.
+fn only_one_at(rolls: &[Roll], t: u64, opts: &Options) -> Option<String> {
+    let roll = roll_at(rolls, t, opts)?;
+    single(roll.present.iter().map(String::as_str).filter(|p| !roll.muted.iter().any(|m| m == p)))
+}
+
+fn single<'n>(mut names: impl Iterator<Item = &'n str>) -> Option<String> {
+    let one = names.next()?;
+    names.next().is_none().then(|| one.to_string())
+}
+
+/// The roll in effect at `t`: the last one before it, if it still holds.
+fn roll_at<'r>(rolls: &'r [Roll], t: u64, opts: &Options) -> Option<&'r Roll> {
+    let i = rolls.partition_point(|r| r.t_ms <= t).checked_sub(1)?;
+    (t - rolls[i].t_ms <= opts.roll_hold_ms).then(|| &rolls[i])
 }
 
 #[cfg(test)]
@@ -341,7 +484,7 @@ mod tests {
         let s: Vec<Sample> = (0..40).map(|i| sample(i * 250, &[if i < 20 { "Ana" } else { "Bia" }])).collect();
         // Bia's "Yeah." (0.4 s), a line across the change that is mostly Ana's, and one mostly Bia's.
         let turns = [turn("", 6_000, 6_400), turn("", 3_500, 5_300), turn("", 4_800, 7_000)];
-        assert_eq!(people(&attribute(&turns, &intervals(&s, &opts), &opts)), [Some("Bia"), Some("Ana"), Some("Bia")]);
+        assert_eq!(people(&attribute(&turns, &intervals(&s, &opts), &[], &opts)), [Some("Bia"), Some("Ana"), Some("Bia")]);
     }
 
     #[test]
@@ -349,7 +492,7 @@ mod tests {
         let opts = Options { lag_ms: 0, ..Default::default() };
         let s: Vec<Sample> = (0..160).map(|i| sample(i * 250, &[if i < 80 { "Ana" } else { "Bia" }])).collect();
         let turns = [turn("system:1", 0, 15_000), turn("system:2", 21_000, 39_000), turn("system:3", 5_000, 5_500), turn("system:3", 30_000, 30_500)];
-        let w = attribute(&turns, &intervals(&s, &opts), &opts);
+        let w = attribute(&turns, &intervals(&s, &opts), &[], &opts);
         assert_eq!(people(&w), [Some("Ana"), Some("Bia"), Some("Ana"), Some("Bia")]);
     }
 
@@ -359,10 +502,18 @@ mod tests {
         // Ana shown until 20 s; then the call can't be read (another tab).
         let s: Vec<Sample> = (0..80).map(|i| sample(i * 250, &["Ana"])).collect();
         let turns = [turn("system:1", 0, 9_000), turn("system:1", 9_000, 19_000), turn("system:1", 30_000, 34_000), turn("system:2", 40_000, 41_000), turn("system:4", 45_000, 70_000)];
-        let w = attribute(&turns, &intervals(&s, &opts), &opts);
-        assert_eq!(w[2], Who::Person { name: "Ana".into(), share: 1.0, by_line: false });
+        let w = attribute(&turns, &intervals(&s, &opts), &[], &opts);
+        assert_eq!(w[2], Who::Person { name: "Ana".into(), share: 1.0, by: By::Voice });
         assert_eq!(w[3], Who::Nobody, "a 1 s voice is noise when another spoke for long");
         assert_eq!(w[4], Who::Voice("system:4".into()));
+    }
+
+    #[test]
+    fn a_line_with_several_shown_at_once_is_nobodys() {
+        let opts = Options { lag_ms: 0, ..Default::default() };
+        let s: Vec<Sample> = (0..40).map(|i| sample(i * 250, &["Ana", "Bia", "Caio"])).collect();
+        let turns = [turn("system:1", 1_000, 9_000)];
+        assert_eq!(attribute(&turns, &intervals(&s, &opts), &[], &opts), [Who::Voice("system:1".into())]);
     }
 
     #[test]
@@ -371,7 +522,7 @@ mod tests {
         // Ana talks until 10 s; her mark stays on until 12 s while Bia answers "Okay, great." at 10.2 s.
         let s: Vec<Sample> = (0..48).map(|i| sample(i * 250, &["Ana"])).chain((48..80).map(|i| sample(i * 250, &["Bia"]))).collect();
         let turns = [turn("system:1", 0, 10_000), turn("system:2", 10_200, 11_400), turn("system:2", 12_500, 19_500)];
-        assert_eq!(people(&attribute(&turns, &intervals(&s, &opts), &opts)), [Some("Ana"), Some("Bia"), Some("Bia")]);
+        assert_eq!(people(&attribute(&turns, &intervals(&s, &opts), &[], &opts)), [Some("Ana"), Some("Bia"), Some("Bia")]);
     }
 
     #[test]
@@ -379,6 +530,73 @@ mod tests {
         let opts = Options { lag_ms: 0, ..Default::default() };
         let s: Vec<Sample> = (0..80).map(|i| sample(i * 250, &["Ana"])).collect();
         let turns = [turn("system:1", 0, 9_000), turn("system:2", 10_000, 19_000)];
-        assert_eq!(people(&attribute(&turns, &intervals(&s, &opts), &opts)), [Some("Ana"), Some("Ana")]);
+        assert_eq!(people(&attribute(&turns, &intervals(&s, &opts), &[], &opts)), [Some("Ana"), Some("Ana")]);
+    }
+
+    fn roll(t: u64, present: &[&str], muted: &[&str]) -> Roll {
+        Roll { t_ms: t, present: present.iter().map(|s| s.to_string()).collect(), muted: muted.iter().map(|s| s.to_string()).collect() }
+    }
+
+    /// Every 5 s until `end_ms`, the same people and mutes.
+    fn rolls(end_ms: u64, present: &[&str], muted: &[&str]) -> Vec<Roll> {
+        (0..end_ms).step_by(5_000).map(|t| roll(t, present, muted)).collect()
+    }
+
+    fn by(w: &[Who]) -> Vec<Option<(&str, By)>> {
+        w.iter().map(|w| match w { Who::Person { name, by, .. } => Some((name.as_str(), *by)), _ => None }).collect()
+    }
+
+    #[test]
+    fn in_a_one_on_one_the_other_voice_is_the_other_person() {
+        let opts = Options::default();
+        // Nobody was ever shown speaking (another tab in front the whole call).
+        let turns = [turn("system:1", 0, 12_000), turn("system:1", 20_000, 26_000)];
+        let w = attribute(&turns, &[], &rolls(30_000, &["Ana"], &[]), &opts);
+        assert_eq!(by(&w), [Some(("Ana", By::Elimination)); 2]);
+    }
+
+    #[test]
+    fn the_one_not_muted_is_who_speaks() {
+        let opts = Options::default();
+        let turns = [turn("system:1", 0, 12_000)];
+        let w = attribute(&turns, &[], &rolls(15_000, &["Ana", "Bia", "Caio"], &["Ana", "Caio"]), &opts);
+        assert_eq!(by(&w), [Some(("Bia", By::Elimination))]);
+    }
+
+    #[test]
+    fn the_last_voice_left_is_the_last_person_left() {
+        let opts = Options { lag_ms: 0, ..Default::default() };
+        // Ana and Bia shown while they spoke; then the reader broke, and a third voice spoke for 15 s.
+        let s: Vec<Sample> = (0..80).map(|i| sample(i * 250, &[if i < 40 { "Ana" } else { "Bia" }])).collect();
+        let turns = [turn("system:1", 0, 9_500), turn("system:2", 10_500, 19_500), turn("system:3", 30_000, 45_000)];
+        let w = attribute(&turns, &intervals(&s, &opts), &rolls(50_000, &["Ana", "Bia", "Caio"], &[]), &opts);
+        assert_eq!(by(&w), [Some(("Ana", By::Voice)), Some(("Bia", By::Voice)), Some(("Caio", By::Elimination))]);
+    }
+
+    #[test]
+    fn a_mix_of_everyones_yeah_is_not_the_last_person_left() {
+        let opts = Options { lag_ms: 0, ..Default::default() };
+        // Ana and Bia talk; a voice of short replies is shown as one or the other; Caio never speaks.
+        let s: Vec<Sample> = (0..160).map(|i| sample(i * 250, &[if i < 80 { "Ana" } else { "Bia" }])).collect();
+        let mut turns = vec![turn("system:1", 0, 19_000), turn("system:2", 20_500, 39_500)];
+        turns.extend((0..12).map(|k| turn("system:3", 1_000 + k * 3_200, 1_900 + k * 3_200)));
+        let w = attribute(&turns, &intervals(&s, &opts), &rolls(40_000, &["Ana", "Bia", "Caio"], &[]), &opts);
+        assert!(by(&w).iter().all(|p| !matches!(p, Some(("Caio", _)))), "{w:?}");
+    }
+
+    #[test]
+    fn a_line_nobody_else_could_have_said() {
+        let opts = Options::default();
+        // Live: no voices. Two others in the call, one muted.
+        let turns = [turn("", 1_000, 3_000), turn("", 7_000, 8_000)];
+        let r = [roll(0, &["Ana", "Bia"], &["Bia"]), roll(5_000, &["Ana", "Bia"], &[])];
+        assert_eq!(by(&attribute(&turns, &[], &r, &opts)), [Some(("Ana", By::Alone)), None]);
+    }
+
+    #[test]
+    fn nobody_is_guessed_without_a_roll() {
+        let opts = Options::default();
+        let turns = [turn("system:1", 10_000, 24_000), turn("", 20_000, 21_000)];
+        assert_eq!(by(&attribute(&turns, &[], &[roll(0, &["Ana"], &[])], &opts)), [None, None], "a roll holds 6 s, not the call");
     }
 }

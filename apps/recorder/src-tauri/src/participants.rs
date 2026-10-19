@@ -7,7 +7,7 @@
 use crate::api::{Participant, Participants, Segment, SpeakerName};
 use recordem_ax::{AxNode, Limits, Scope};
 use recordem_scrape::{Monitor, Profile, Scrape};
-use recordem_timeline::{Options, Sample, Turn, Who};
+use recordem_timeline::{Options, Roll, Sample, Turn, Who};
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -214,23 +214,53 @@ pub fn watch(bundle: String, dir: PathBuf, started: Instant, stop: CancellationT
     });
 }
 
-/// speakers.jsonl as timeline samples: who the app showed speaking, minus the person on this Mac (their voice is the
-/// mic channel, never a "system" voice). Lines are written on a change and as a heartbeat, so each holds until the
-/// next one; a time the call couldn't be read holds nobody. The person on this Mac is who the app says ("You" in
-/// Meet's participant list, only while it is open), or else the name they signed in to Recordem with.
-fn samples(lines: &[Line]) -> Vec<Sample> {
-    let me = lines.iter().rev().find_map(|l| l.self_name.clone()).or_else(|| {
+/// The person on this Mac: who the app says ("You" in Meet's participant list, only while it is open), or else the
+/// name they signed in to Recordem with. Their voice is the mic channel, never a "system" voice.
+fn me(lines: &[Line]) -> Option<String> {
+    lines.iter().rev().find_map(|l| l.self_name.clone()).or_else(|| {
         let account = crate::config::load().account;
         account.split(" (").next().map(str::trim).filter(|n| !n.is_empty()).map(String::from)
-    });
+    })
+}
+
+/// speakers.jsonl as timeline samples: who the app showed speaking, minus the person on this Mac. Lines are written
+/// on a change and as a heartbeat, so each holds until the next; a time the call couldn't be read holds nobody.
+fn samples(lines: &[Line], me: Option<&str>) -> Vec<Sample> {
     let s: Vec<Sample> = lines
         .iter()
         .map(|l| Sample {
             t_ms: l.t_ms,
-            speaking: if l.visible { l.speaking.iter().filter(|n| Some(*n) != me.as_ref()).cloned().collect() } else { vec![] },
+            speaking: if l.visible { l.speaking.iter().filter(|n| Some(n.as_str()) != me).cloned().collect() } else { vec![] },
         })
         .collect();
     recordem_timeline::held(&s, 250, HEARTBEAT.as_millis() as u64 + 1_000)
+}
+
+/// speakers.jsonl as who could be speaking: everyone listed so far but the person on this Mac (a tile the layout
+/// hides is still in the call, and counting someone who left only makes a guess rarer), and who was shown muted. A
+/// time the call couldn't be read lists nobody.
+fn rolls(lines: &[Line], me: Option<&str>) -> Vec<Roll> {
+    let mut seen: Vec<String> = vec![];
+    lines
+        .iter()
+        .map(|l| {
+            for p in &l.people {
+                if Some(p.as_str()) != me && !seen.contains(p) {
+                    seen.push(p.clone());
+                }
+            }
+            if !l.visible {
+                return Roll { t_ms: l.t_ms, ..Default::default() };
+            }
+            Roll { t_ms: l.t_ms, present: seen.clone(), muted: l.muted.clone() }
+        })
+        .collect()
+}
+
+/// The evidence speakers.jsonl gives `crates/timeline`: who was shown speaking, and who could have been.
+fn evidence(lines: &[Line], opts: &Options) -> (Vec<recordem_timeline::Interval>, Vec<Roll>) {
+    let me = me(lines);
+    (recordem_timeline::intervals(&samples(lines, me.as_deref()), opts), rolls(lines, me.as_deref()))
 }
 
 pub fn read(dir: &Path) -> Vec<Line> {
@@ -240,18 +270,18 @@ pub fn read(dir: &Path) -> Vec<Line> {
 }
 
 /// Names the other side's lines after the pass after the call (`crates/timeline::attribute`): each line gets its
-/// voice's name, else the person shown speaking during it. Lines are relabelled one label per person, then per
+/// voice's name, else the person shown speaking during it, else the only person it could be. Lines are relabelled one label per person, then per
 /// voice nobody was named for ("system:1", "system:2", … by first appearance); a line of a voice too small to be one
 /// gets no label. The names, with how clear the evidence was on average (by time) as the confidence.
 pub fn name_lines(lines: &[Line], segments: &mut [Segment]) -> Vec<SpeakerName> {
     let opts = Options::default();
-    let intervals = recordem_timeline::intervals(&samples(lines), &opts);
+    let (intervals, rolls) = evidence(lines, &opts);
     let system: Vec<usize> = (0..segments.len()).filter(|&i| segments[i].channel == "system").collect();
     let turns: Vec<Turn> = system
         .iter()
         .map(|&i| Turn { label: segments[i].speaker.clone().unwrap_or_default(), start_ms: segments[i].start_ms, end_ms: segments[i].end_ms })
         .collect();
-    let who = recordem_timeline::attribute(&turns, &intervals, &opts);
+    let who = recordem_timeline::attribute(&turns, &intervals, &rolls, &opts);
     let mut keys: Vec<(bool, String)> = vec![]; // (a person, their name or the voice's label), by first appearance
     let mut clarity: std::collections::HashMap<String, (f64, u64)> = Default::default();
     for (&i, w) in system.iter().zip(who) {
@@ -286,8 +316,9 @@ pub fn name_lines(lines: &[Line], segments: &mut [Segment]) -> Vec<SpeakerName> 
 }
 
 /// While the call goes on, each line of the other side is named after whoever the call app showed speaking during it
-/// (`name_lines`' rule, without voices): "Ana Souza" becomes "system:1", the next name "system:2", by first
-/// appearance. A line nobody was shown speaking for stays unnamed. The pass after the call replaces all of it.
+/// (`name_lines`' rule, without voices), or after the only person who could have said it: "Ana Souza" becomes
+/// "system:1", the next name "system:2", by first appearance. Other lines stay unnamed. The pass after the call
+/// replaces all of it.
 #[derive(Default)]
 pub struct LiveVoices {
     names: Vec<String>,
@@ -297,11 +328,11 @@ impl LiveVoices {
     /// Names the system lines of `segs` that have no speaker yet. True when a name appeared that wasn't there before.
     pub fn label(&mut self, lines: &[Line], segs: &mut [Segment]) -> bool {
         let opts = Options::default();
-        let intervals = recordem_timeline::intervals(&samples(lines), &opts);
+        let (intervals, rolls) = evidence(lines, &opts);
         let before = self.names.len();
         for s in segs.iter_mut().filter(|s| s.channel == "system" && s.speaker.is_none()) {
             let turn = Turn { label: String::new(), start_ms: s.start_ms, end_ms: s.end_ms };
-            let Some((name, _)) = recordem_timeline::line_name(&turn, &intervals, &opts) else { continue };
+            let Some(Who::Person { name, .. }) = recordem_timeline::attribute(&[turn], &intervals, &rolls, &opts).pop() else { continue };
             let k = self.names.iter().position(|n| *n == name).unwrap_or_else(|| {
                 self.names.push(name);
                 self.names.len() - 1
@@ -347,6 +378,18 @@ mod tests {
     }
 
     #[test]
+    fn a_one_on_one_is_named_without_anyone_shown_speaking() {
+        // Another tab in front: the call is listed, nobody is shown speaking.
+        let lines: Vec<Line> = (0..30)
+            .map(|i| Line { t_ms: i * 1_000, visible: true, speaking: vec![], people: vec!["Ana Souza".into(), "Bruno Lima".into()], muted: vec![], self_name: Some("Bruno Lima".into()) })
+            .collect();
+        let mut segs = [seg("system:1", 1_000, 13_000), seg("system:1", 15_000, 25_000)];
+        let names = name_lines(&lines, &mut segs);
+        assert_eq!(names.iter().map(|n| (n.label.as_str(), n.name.as_str())).collect::<Vec<_>>(), [("system:1", "Ana Souza")]);
+        assert_eq!(names[0].confidence, Some(0.5), "a guess, not something the app showed");
+    }
+
+    #[test]
     fn live_lines_are_named_by_first_appearance() {
         let mut lines = vec![];
         for t in (0..20_000).step_by(500) {
@@ -373,7 +416,7 @@ mod tests {
         let t: crate::api::Transcript = serde_json::from_slice(&std::fs::read(dir.join("transcript.json")).unwrap()).unwrap();
         let lines = read(&dir);
         let opts = Options::default();
-        let intervals = recordem_timeline::intervals(&samples(&lines), &opts);
+        let (intervals, _) = evidence(&lines, &opts);
         let mut by: std::collections::BTreeMap<(String, String), u64> = Default::default();
         for s in t.segments.iter().filter(|s| s.channel == "system") {
             for iv in &intervals {
