@@ -4984,6 +4984,8 @@ dependencies = [
  "detect",
  "device-monitor",
  "dirs 6.0.0",
+ "embedding",
+ "flate2",
  "futures-util",
  "hound",
  "macos-accessibility-client",

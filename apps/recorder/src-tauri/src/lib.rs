@@ -805,13 +805,13 @@ async fn process(app: &AppHandle, dir: PathBuf, warning: Option<String>) {
                 transcribe::run(&capture::read(&f.mic)?, &capture::read(&f.system)?, diarize::found(&d), &lang, &vocabulary, &engine, &progress)
             })
             .await;
-            let segments = match segs {
+            let mut segments = match segs {
                 Ok(Ok(s)) => s,
                 Ok(Err(e)) => return set_phase(app, Phase::Failed { message: format!("transcription failed: {e}") }),
                 Err(e) => return set_phase(app, Phase::Failed { message: format!("transcription failed: {e}") }),
             };
-            // Names for the voices, from who the call app showed speaking.
-            let speakers = participants::names(&participants::name_voices(&participants::read(&dir), &segments));
+            // Names for the lines, from who the call app showed speaking.
+            let speakers = participants::name_lines(&participants::read(&dir), &mut segments);
             let t = Transcript {
                 ended_at: meta.ended_at.clone().unwrap_or_else(now),
                 language: Some(spoken(&segments)),
