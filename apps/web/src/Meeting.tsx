@@ -239,8 +239,8 @@ function RecordingView({ rec, onChange }: { rec: Recording; onChange: () => void
           )}
         </div>
       )}
-      <Facts rec={rec} t={t} notes={notes} />
       {notes && <NotesView n={notes} />}
+      <Facts rec={rec} t={t} notes={notes} />
       {missing && !live && <p className="muted">No transcript for this recording.</p>}
       <ol className="transcript">
         {segs.map((s, i) => {
