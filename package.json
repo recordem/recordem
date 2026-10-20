@@ -13,6 +13,7 @@
     "openapi": "bun --filter @recordem/contract openapi",
     "smoke": "bun scripts/smoke.ts",
     "smoke:agents": "bun scripts/agents.ts",
+    "smoke:sdk": "bun scripts/sdk.ts",
     "typecheck": "bun --filter '*' typecheck"
   },
   "devDependencies": {
