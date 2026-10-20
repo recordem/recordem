@@ -60,7 +60,10 @@ export function Home() {
     <div className="shell">
       <header className="top">
         <a className="brand" {...link("/")}><span className="dot" /> Recordem</a>
-        <button className="ghost small" onClick={signOut}>Sign out</button>
+        <nav className="top-actions">
+          <a className="muted small" {...link("/settings")}>Settings</a>
+          <button className="ghost small" onClick={signOut}>Sign out</button>
+        </nav>
       </header>
       <div className="home">
         <aside>

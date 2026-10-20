@@ -136,3 +136,22 @@ button.icon:hover, button.icon[aria-expanded="true"] { background: var(--soft); 
 .details h3 { margin: 0 0 12px; font-size: 16px; }
 .details dl { margin-bottom: 16px; }
 @media (max-width: 520px) { .details dl div { grid-template-columns: 1fr; gap: 0; } }
+
+.top-actions { display: flex; align-items: center; gap: 12px; }
+.settings { max-width: 720px; }
+.settings h1 { font-size: 22px; margin-bottom: 8px; }
+.settings section { margin-top: 32px; }
+.settings h2 { font-size: 17px; }
+.settings code { font-size: 12.5px; background: var(--soft); padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere; }
+.creds { list-style: none; padding: 0; margin: 12px 0; border-top: 1px solid var(--line); }
+.creds li { display: grid; grid-template-columns: 1fr auto; column-gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.creds li > div { grid-column: 1; }
+.creds li > button { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
+.creds li.revoked { opacity: 0.55; }
+.secret { margin: 12px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--now); display: grid; gap: 8px; }
+.secret p { margin: 0; }
+.secret div { display: grid; grid-template-columns: 110px 1fr auto; gap: 8px; align-items: center; }
+.make { display: grid; gap: 8px; margin-top: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.make input:not([type="checkbox"]) { font: inherit; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); }
+.make label { font-size: 14px; display: flex; gap: 8px; align-items: center; }
+@media (max-width: 520px) { .secret div { grid-template-columns: 1fr; } }

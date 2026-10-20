@@ -4,6 +4,7 @@ import { completeSignIn, signedIn, signIn } from "./auth";
 import { Home } from "./Home";
 import { MeetingPage } from "./Meeting";
 import { navigate, usePath } from "./router";
+import { Settings } from "./Settings";
 import "./styles.css";
 
 function Callback() {
@@ -24,6 +25,7 @@ function App() {
       </div>
     );
   }
+  if (path.startsWith("/settings")) return <Settings />;
   const m = path.match(/^\/m\/([0-9a-f-]{36})/);
   return m ? <MeetingPage id={m[1]} /> : <Home />;
 }

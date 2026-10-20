@@ -1,7 +1,7 @@
 // Sign-in for the portal: OAuth 2.1 authorization code + PKCE as the first-party public client "recordem-web".
 // Tokens live in localStorage; the access token is refreshed (rotating refresh token) shortly before it expires.
 const CLIENT_ID = "recordem-web";
-const SCOPE = "openid profile email offline_access meetings:read meetings:write transcripts:read audio:read calendars:read";
+const SCOPE = "openid profile email offline_access meetings:read meetings:write transcripts:read audio:read calendars:read credentials:manage";
 const TOKEN_URL = __TOKEN_URL__;
 const KEY = "recordem.tokens";
 

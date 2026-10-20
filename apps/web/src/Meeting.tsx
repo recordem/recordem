@@ -360,6 +360,9 @@ function Details({ rec, t, notes, onClose }: { rec: Recording; t: Transcript | n
   const languages = [...new Set(segs.map((s) => s.language).filter(Boolean))];
   const facts: [string, string | null | undefined][] = [
     ["Recorded", [time(rec.started_at), rec.ended_at && time(rec.ended_at)].filter(Boolean).join(" – ")],
+    ["Recorded by", rec.user],
+    ["Their reference", rec.ref],
+    ["Failed", rec.failed && `${rec.failed.reason}${rec.failed.message ? `: ${rec.failed.message}` : ""}`],
     ["Transcript", t && [t.status, languages.join(", ") || t.language, `${segs.length} lines`].filter(Boolean).join(" · ")],
     ["Speech to text", t?.model],
     ["Voices named", names.filter((n) => n.label !== "mic").map((n) => `${n.name} (${n.source}${n.confidence != null ? ` ${Math.round(n.confidence * 100)}%` : ""})`).join(", ") || null],
