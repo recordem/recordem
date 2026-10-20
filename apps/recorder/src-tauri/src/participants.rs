@@ -164,14 +164,14 @@ pub fn watch(bundle: String, dir: PathBuf, started: Instant, stop: CancellationT
                 }
                 // Calibration: what each on-screen tile showed, with the profile's own reading as one more mark.
                 if s.visible && s.participants.iter().any(|p| !p.classes.is_empty()) {
-                    let marked: Vec<(bool, Vec<String>)> = s
+                    let marked: Vec<(bool, &str, Vec<String>)> = s
                         .participants
                         .iter()
                         .filter(|p| p.frame.is_some())
-                        .map(|p| (p.is_self, p.classes.iter().cloned().chain(p.speaking.then(|| PROFILE_MARK.to_string())).collect()))
+                        .map(|p| (p.is_self, p.name.as_str(), p.classes.iter().cloned().chain(p.speaking.then(|| PROFILE_MARK.to_string())).collect()))
                         .collect();
                     calibrator.observe(&recordem_scrape::calibrate::Moment {
-                        tiles: marked.iter().map(|(me, c)| (*me, c.as_slice())).collect(),
+                        tiles: marked.iter().map(|(me, name, c)| (*me, *name, c.as_slice())).collect(),
                         others_audible: audible,
                         me_audible,
                     });

@@ -17,11 +17,11 @@ fn finds_meets_mark() {
     for f in files {
         let tree: AxNode = serde_json::from_str(&std::fs::read_to_string(&f).unwrap()).unwrap();
         let Some(s) = meet.scrape(&tree) else { continue };
-        let tiles: Vec<(bool, Vec<String>)> = s.participants.iter().filter(|p| p.frame.is_some()).map(|p| (p.is_self, p.classes.clone())).collect();
+        let tiles: Vec<(bool, &str, Vec<String>)> = s.participants.iter().filter(|p| p.frame.is_some()).map(|p| (p.is_self, p.name.as_str(), p.classes.clone())).collect();
         tiles_seen += tiles.len();
         if s.participants.iter().any(|p| p.speaking && !p.is_self) { heard += 1 } else { quiet += 1 }
         c.observe(&Moment {
-            tiles: tiles.iter().map(|(me, cl)| (*me, cl.as_slice())).collect(),
+            tiles: tiles.iter().map(|(me, name, cl)| (*me, *name, cl.as_slice())).collect(),
             others_audible: s.participants.iter().any(|p| p.speaking && !p.is_self),
             me_audible: s.participants.iter().any(|p| p.speaking && p.is_self),
         });

@@ -135,6 +135,11 @@ fn first(fields: &[Field], node: &AxNode) -> Option<String> {
     fields.iter().find_map(|f| f.read(node))
 }
 
+/// The DOM classes in a tile and everything in it.
+fn tile_classes(tile: &AxNode) -> Vec<String> {
+    std::iter::once(tile).chain(tile.descendants().map(|(_, n)| n)).flat_map(|n| n.dom_classes.iter().cloned()).collect()
+}
+
 /// The app versions a profile is written for, both ends included ("6.5", "6.5.9.61929"). Open ends are fine.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Versions {
@@ -530,10 +535,18 @@ impl Profile {
             }
             let speaking = self.speaking.as_ref().is_some_and(|s| s.find_first(tile).is_some());
             let muted = self.muted.as_ref().map(|s| s.find_first(tile).is_some());
-            // The same person shows up twice in some layouts (Zoom's speaker view: the stage and the strip); keep the
-            // first tile, but they are speaking if either says so.
+            // The same person shows up twice in some layouts (Zoom's speaker view: the stage and the strip; Meet's
+            // shared screen, named after the presenter while hovered); keep the first tile, but they are speaking if
+            // either says so, muted only if both do (a shared screen has no mic), and the classes are of both.
             match index.get(&name) {
-                Some(&i) => out[i].speaking |= speaking,
+                Some(&i) => {
+                    let p = &mut out[i];
+                    p.speaking |= speaking;
+                    p.muted = p.muted.zip(muted).map(|(a, b)| a && b);
+                    p.classes.extend(tile_classes(tile));
+                    p.classes.sort();
+                    p.classes.dedup();
+                }
                 None => {
                     index.insert(name.clone(), out.len());
                     let frame = match (tile.frame, window_frame) {
@@ -541,8 +554,7 @@ impl Profile {
                         _ => None,
                     };
                     let is_self = self.self_tile.as_ref().is_some_and(|s| s.matches(tile));
-                    let mut classes: Vec<String> =
-                        std::iter::once(tile).chain(tile.descendants().map(|(_, n)| n)).flat_map(|n| n.dom_classes.iter().cloned()).collect();
+                    let mut classes = tile_classes(tile);
                     classes.sort();
                     classes.dedup();
                     out.push(Participant { name, speaking, muted, frame, is_self, classes });
