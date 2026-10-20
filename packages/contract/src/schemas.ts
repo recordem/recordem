@@ -165,6 +165,20 @@ export const Notes = z.object({
   created_at: datetime(),
 }).openapi("Notes");
 
+export const SearchHit = z.object({
+  meeting: z.object({ id: z.string().uuid(), title: z.string().nullable(), starts_at: datetime() }).openapi({ description: "The meeting the hit is in; read it whole with getMeeting" }),
+  recording_id: z.string().uuid().nullable().openapi({ description: "The recording the line is from (getTranscript, getNotes); null for a hit on the meeting's title" }),
+  field: z.enum(["transcript", "title", "attendees"]).openapi({ description: "What matched: a line of a transcript, the meeting's title, or someone the call app listed in it" }),
+  segment: z.object({
+    start_ms: z.number().int().openapi({ description: "From the start of the recording; add it to the recording's started_at for the time of day" }),
+    end_ms: z.number().int(),
+    speaker: z.string().nullable().openapi({ description: 'The voice label: "mic", "system:1", …' }),
+    speaker_name: z.string().nullable().openapi({ description: "Who it is, from the transcript's speakers; null when the voice has no name" }),
+    text: z.string(),
+  }).nullable().openapi({ description: "The matching line, for field transcript" }),
+  rank: z.number().openapi({ description: "Higher is a better match; only comparable within one search" }),
+}).openapi("SearchHit");
+
 export const NameSpeaker = z.object({
   label: z.string().max(40).openapi({ example: "system:1" }),
   name: z.string().trim().max(200).nullable().openapi({ description: "null or empty: the voice goes back to unnamed" }),

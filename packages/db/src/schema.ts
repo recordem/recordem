@@ -1,4 +1,5 @@
 // The api database. Workspaces and users live in the identity provider: here they are only ids (text, as issued).
+import { sql } from "drizzle-orm";
 import { index, integer, jsonb, pgTable, primaryKey, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
 export const meetings = pgTable("meetings", {
@@ -59,7 +60,11 @@ export const transcripts = pgTable("transcripts", {
   segments: jsonb("segments").$type<Segment[]>().notNull().default([]),
   speakers: jsonb("speakers").$type<SpeakerName[]>().notNull().default([]),   // names for the voices ("system:1" → …)
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  // Full-text search (/v1/search) over the words of its lines: 'simple', as calls mix languages. The api's search
+  // repeats this expression exactly, or the index isn't used.
+  index("transcripts_search").using("gin", sql`jsonb_to_tsvector('simple', jsonb_path_query_array(${t.segments}, '$[*].text'), '["string"]')`),
+]);
 
 export type ActionItem = { text: string; owner: string | null };
 export type Topic = { title: string; points: string[] };

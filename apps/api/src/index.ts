@@ -8,6 +8,7 @@ import { HTTPException } from "hono/http-exception";
 import { authenticate, requireScopes, type Env } from "./auth";
 import { serveProfiles } from "./profiles";
 import { mount } from "./recordings";
+import { mountSearch } from "./search";
 import { mountWebhooks } from "./webhooks";
 import { files } from "./storage";
 import { meetingView } from "./views";
@@ -59,6 +60,7 @@ app.openapi(routes.listMeetings, async (c) => {
 });
 
 mount(app, db);
+mountSearch(app, db);
 mountWebhooks(app, db);
 
 app.onError((e, c) => (e instanceof HTTPException ? e.getResponse() : (console.error(e), c.json({ error: "server_error", message: "unexpected error" }, 500))));

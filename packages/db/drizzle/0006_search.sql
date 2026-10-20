@@ -1,0 +1,1 @@
+CREATE INDEX "transcripts_search" ON "transcripts" USING gin (jsonb_to_tsvector('simple', jsonb_path_query_array("segments", '$[*].text'), '["string"]'));

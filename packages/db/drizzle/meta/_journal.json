@@ -43,6 +43,13 @@
       "when": 1792432866887,
       "tag": "0005_notes_attendees",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792512139270,
+      "tag": "0006_search",
+      "breakpoints": true
     }
   ]
 }

@@ -1084,6 +1084,104 @@
           "profiles"
         ]
       },
+      "SearchHit": {
+        "type": "object",
+        "properties": {
+          "meeting": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "starts_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "id",
+              "title",
+              "starts_at"
+            ],
+            "description": "The meeting the hit is in; read it whole with getMeeting"
+          },
+          "recording_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The recording the line is from (getTranscript, getNotes); null for a hit on the meeting's title"
+          },
+          "field": {
+            "type": "string",
+            "enum": [
+              "transcript",
+              "title",
+              "attendees"
+            ],
+            "description": "What matched: a line of a transcript, the meeting's title, or someone the call app listed in it"
+          },
+          "segment": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "start_ms": {
+                "type": "integer",
+                "description": "From the start of the recording; add it to the recording's started_at for the time of day"
+              },
+              "end_ms": {
+                "type": "integer"
+              },
+              "speaker": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The voice label: \"mic\", \"system:1\", …"
+              },
+              "speaker_name": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Who it is, from the transcript's speakers; null when the voice has no name"
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "start_ms",
+              "end_ms",
+              "speaker",
+              "speaker_name",
+              "text"
+            ],
+            "description": "The matching line, for field transcript"
+          },
+          "rank": {
+            "type": "number",
+            "description": "Higher is a better match; only comparable within one search"
+          }
+        },
+        "required": [
+          "meeting",
+          "recording_id",
+          "field",
+          "segment",
+          "rank"
+        ]
+      },
       "StreamEvent": {
         "type": "object",
         "properties": {
@@ -2920,6 +3018,149 @@
           },
           "304": {
             "description": "Unchanged since the ETag sent"
+          }
+        }
+      }
+    },
+    "/v1/search": {
+      "get": {
+        "operationId": "search",
+        "tags": [
+          "meetings"
+        ],
+        "summary": "Find what was said, and meetings by title or by who was in them",
+        "description": "Full-text search over the workspace's transcripts (live and final), meeting titles and attendees, best match first. Words match whole, in any language, case-insensitive; accents count (\"reunião\" ≠ \"reuniao\"). A transcript matches when it has every word; within it, each line with any of them is a hit, lines with all of them first. Hits are lines, not meetings: several can come from one meeting.",
+        "security": [
+          {
+            "oauth2": [
+              "meetings:read",
+              "transcripts:read"
+            ]
+          }
+        ],
+        "x-scopes": [
+          "meetings:read",
+          "transcripts:read"
+        ],
+        "x-upload": false,
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500,
+              "description": "Words to find. \"Quoted words\" match as a phrase, -word excludes, `or` between words matches either",
+              "example": "publishing real-time"
+            },
+            "required": true,
+            "description": "Words to find. \"Quoted words\" match as a phrase, -word excludes, `or` between words matches either",
+            "name": "q",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "`next` from the previous page"
+            },
+            "required": false,
+            "description": "`next` from the previous page",
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Only meetings starting at or after"
+            },
+            "required": false,
+            "description": "Only meetings starting at or after",
+            "name": "from",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Only meetings starting before"
+            },
+            "required": false,
+            "description": "Only meetings starting before",
+            "name": "to",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Only within this meeting"
+            },
+            "required": false,
+            "description": "Only within this meeting",
+            "name": "meeting_id",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of hits, best first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/SearchHit"
+                      }
+                    },
+                    "next": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Cursor for the next page; null at the end"
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "next"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token lacks a required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }

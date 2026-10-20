@@ -2,7 +2,7 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import {
   ContextRequest, CreatedRecording, CreatedWebhook, CreateRecording, CreateWebhook, ErrorBody, FinalTranscript, LiveAck, LiveBatch, Match, Me, Meeting, MeetingDetail, NameSpeaker, Notes, Page,
-  ReaderProfiles, Recording, StreamEvent, Transcript, Track, TrackUrl, UpdateMeeting, MoveRecording, WebhookEndpoint,
+  ReaderProfiles, Recording, SearchHit, StreamEvent, Transcript, Track, TrackUrl, UpdateMeeting, MoveRecording, WebhookEndpoint,
 } from "./schemas";
 import type { Scope } from "./scopes";
 
@@ -34,6 +34,24 @@ export const listMeetings = createRoute({
     }),
   },
   responses: { 200: json(Page(Meeting), "A page of meetings"), ...errors },
+});
+
+export const search = createRoute({
+  method: "get", path: "/v1/search", operationId: "search", tags: ["meetings"],
+  summary: "Find what was said, and meetings by title or by who was in them",
+  description: "Full-text search over the workspace's transcripts (live and final), meeting titles and attendees, best match first. Words match whole, in any language, case-insensitive; accents count (\"reunião\" ≠ \"reuniao\"). A transcript matches when it has every word; within it, each line with any of them is a hit, lines with all of them first. Hits are lines, not meetings: several can come from one meeting.",
+  ...needs("meetings:read", "transcripts:read"),
+  request: {
+    query: z.object({
+      q: z.string().trim().min(1).max(500).openapi({ description: 'Words to find. "Quoted words" match as a phrase, -word excludes, `or` between words matches either', example: "publishing real-time" }),
+      limit: z.coerce.number().int().min(1).max(100).default(20),
+      cursor: z.string().optional().openapi({ description: "`next` from the previous page" }),
+      from: z.string().datetime({ offset: true }).optional().openapi({ description: "Only meetings starting at or after" }),
+      to: z.string().datetime({ offset: true }).optional().openapi({ description: "Only meetings starting before" }),
+      meeting_id: z.string().uuid().optional().openapi({ description: "Only within this meeting" }),
+    }),
+  },
+  responses: { 200: json(Page(SearchHit), "A page of hits, best first"), ...errors },
 });
 
 export const getMeeting = createRoute({

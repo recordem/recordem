@@ -344,6 +344,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Find what was said, and meetings by title or by who was in them
+         * @description Full-text search over the workspace's transcripts (live and final), meeting titles and attendees, best match first. Words match whole, in any language, case-insensitive; accents count ("reunião" ≠ "reuniao"). A transcript matches when it has every word; within it, each line with any of them is a hit, lines with all of them first. Hits are lines, not meetings: several can come from one meeting.
+         */
+        get: operations["search"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/recordings/{id}/stop": {
         parameters: {
             query?: never;
@@ -701,6 +721,39 @@ export interface components {
             } & {
                 [key: string]: unknown;
             })[];
+        };
+        SearchHit: {
+            /** @description The meeting the hit is in; read it whole with getMeeting */
+            meeting: {
+                /** Format: uuid */
+                id: string;
+                title: string | null;
+                /** Format: date-time */
+                starts_at: string;
+            };
+            /**
+             * Format: uuid
+             * @description The recording the line is from (getTranscript, getNotes); null for a hit on the meeting's title
+             */
+            recording_id: string | null;
+            /**
+             * @description What matched: a line of a transcript, the meeting's title, or someone the call app listed in it
+             * @enum {string}
+             */
+            field: "transcript" | "title" | "attendees";
+            /** @description The matching line, for field transcript */
+            segment: {
+                /** @description From the start of the recording; add it to the recording's started_at for the time of day */
+                start_ms: number;
+                end_ms: number;
+                /** @description The voice label: "mic", "system:1", … */
+                speaker: string | null;
+                /** @description Who it is, from the transcript's speakers; null when the voice has no name */
+                speaker_name: string | null;
+                text: string;
+            } | null;
+            /** @description Higher is a better match; only comparable within one search */
+            rank: number;
         };
         StreamEvent: {
             /** @description Event id (also the SSE id) */
@@ -1860,6 +1913,60 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    search: {
+        parameters: {
+            query: {
+                /** @description Words to find. "Quoted words" match as a phrase, -word excludes, `or` between words matches either */
+                q: string;
+                limit?: number;
+                /** @description `next` from the previous page */
+                cursor?: string;
+                /** @description Only meetings starting at or after */
+                from?: string;
+                /** @description Only meetings starting before */
+                to?: string;
+                /** @description Only within this meeting */
+                meeting_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of hits, best first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["SearchHit"][];
+                        /** @description Cursor for the next page; null at the end */
+                        next: string | null;
+                    };
+                };
+            };
+            /** @description Missing or invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Token lacks a required scope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
             };
         };
     };
