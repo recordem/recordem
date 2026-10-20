@@ -1,4 +1,4 @@
-# One image for the server: auth (identity provider), api, and the portal's static files (served by apps/web/serve.ts).
+# One image for the server: auth (identity provider), api, mcp, and the portal's static files (served by apps/web/serve.ts).
 # Each Deployment runs its own command; migrations run as initContainers. The portal is built in a first stage with
 # the public addresses baked in (Vite); the final stage installs on its own, since bun's isolated linker leaves
 # symlinks a multi-stage COPY would break.
@@ -10,10 +10,12 @@ COPY package.json bun.lock tsconfig.base.json ./
 COPY packages/contract/package.json packages/contract/
 COPY packages/db/package.json packages/db/
 COPY packages/sdk/package.json packages/sdk/
+COPY packages/cli/package.json packages/cli/
 COPY apps/auth/package.json apps/auth/
 COPY apps/api/package.json apps/api/
 COPY apps/worker/package.json apps/worker/
 COPY apps/web/package.json apps/web/
+COPY apps/mcp/package.json apps/mcp/
 RUN bun install --frozen-lockfile
 COPY packages packages
 COPY apps/web apps/web
@@ -25,15 +27,18 @@ COPY package.json bun.lock tsconfig.base.json ./
 COPY packages/contract/package.json packages/contract/
 COPY packages/db/package.json packages/db/
 COPY packages/sdk/package.json packages/sdk/
+COPY packages/cli/package.json packages/cli/
 COPY apps/auth/package.json apps/auth/
 COPY apps/api/package.json apps/api/
 COPY apps/worker/package.json apps/worker/
 COPY apps/web/package.json apps/web/
+COPY apps/mcp/package.json apps/mcp/
 RUN bun install --frozen-lockfile
 COPY packages packages
 COPY apps/auth apps/auth
 COPY apps/api apps/api
 COPY apps/worker apps/worker
+COPY apps/mcp apps/mcp
 # The reader profiles the api serves to recorders (GET /v1/recorder/profiles).
 COPY apps/recorder/crates/scrape/profiles apps/recorder/crates/scrape/profiles
 COPY apps/web/serve.ts apps/web/

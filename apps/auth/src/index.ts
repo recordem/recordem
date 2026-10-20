@@ -18,6 +18,9 @@ app.use("/api/auth/oauth2/*", cors({ origin: ORIGINS, allowHeaders: ["content-ty
 app.on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(c.req.raw));
 app.get("/.well-known/openid-configuration", (c) => oauthProviderOpenIdConfigMetadata(auth)(c.req.raw));
 app.get("/.well-known/oauth-authorization-server", (c) => oauthProviderAuthServerMetadata(auth)(c.req.raw));
+// The same, where RFC 8414 puts them for an issuer with a path (/api/auth): MCP clients look there.
+app.get("/.well-known/oauth-authorization-server/api/auth", (c) => oauthProviderAuthServerMetadata(auth)(c.req.raw));
+app.get("/.well-known/openid-configuration/api/auth", (c) => oauthProviderOpenIdConfigMetadata(auth)(c.req.raw));
 app.get("/healthz", (c) => c.text("ok"));
 
 /** Calls a better-auth endpoint as the browser would (its cookies), and passes back the cookies it sets. */

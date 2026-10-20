@@ -1,0 +1,16 @@
+{
+  "name": "@recordem/mcp",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "@recordem/sdk": "workspace:*",
+    "hono": "4.13.12",
+    "zod": "4.6.5"
+  }
+}

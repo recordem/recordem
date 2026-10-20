@@ -10,6 +10,8 @@ import { Pool } from "pg";
 const env = (k: string, d?: string) => process.env[k] ?? d ?? (() => { throw new Error(`${k} is not set`); })();
 export const AUTH_URL = env("AUTH_URL", "http://localhost:39410");
 export const API_URL = env("API_URL", "http://localhost:39411");
+/** The MCP server (apps/mcp), when there is one: a second resource, whose tokens the API also accepts. */
+export const MCP_RESOURCE = process.env.MCP_URL ? `${process.env.MCP_URL}/mcp` : null;
 
 // The issuer the OAuth metadata announces is https for any non-loopback host (even on a plain-http dev box), so the
 // JWTs are signed with that same value; it is an identifier, never fetched.
@@ -74,7 +76,7 @@ export const auth = betterAuth({
       loginPage: "/sign-in",
       consentPage: "/consent",
       scopes: ["openid", "profile", "email", "offline_access", ...Object.keys(SCOPES)],
-      resources: [API_URL],
+      resources: [API_URL, ...(MCP_RESOURCE ? [MCP_RESOURCE] : [])],
       // The API is the one resource; scopes and the user's consent decide what a client gets, not a per-client link.
       enforcePerClientResources: false,
       // MCP clients (Claude…) and the CLI register themselves before anyone signs in.

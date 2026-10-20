@@ -16,6 +16,8 @@ import { meetingView } from "./views";
 const env = (k: string, d?: string) => process.env[k] ?? d ?? (() => { throw new Error(`${k} is not set`); })();
 const AUTH_URL = env("AUTH_URL", "http://localhost:39410");
 const API_URL = env("API_URL", "http://localhost:39411");
+// Tokens issued for the MCP server (apps/mcp) are good here too: it is a client of this API on the caller's behalf.
+const AUDIENCES = [API_URL, ...(process.env.MCP_URL ? [`${process.env.MCP_URL}/mcp`] : [])];
 const db = connect(env("DATABASE_URL"));
 // Browser clients (the portal) call the API directly with a Bearer token.
 const ORIGINS = env("WEB_ORIGINS", "http://localhost:39412").split(",");
@@ -31,7 +33,7 @@ app.get("/v1/openapi.json", (c) => c.json(document(AUTH_URL, API_URL)));
 app.get(routes.readerProfiles.path, (c) => serveProfiles(c.req.raw));
 // Public routes (the contract marks them `x-public`) take no token; every other /v1 route does.
 const PUBLIC = new Set(["/v1/openapi.json", ...Object.values(routes).filter((r) => "x-public" in r).map((r) => r.path)]);
-app.use("/v1/*", async (c, next) => (PUBLIC.has(c.req.path) ? next() : authenticate({ authUrl: AUTH_URL, audience: API_URL })(c, next)));
+app.use("/v1/*", async (c, next) => (PUBLIC.has(c.req.path) ? next() : authenticate({ authUrl: AUTH_URL, audience: AUDIENCES })(c, next)));
 // Each route requires the scopes the contract declares for it (per method: GET and PUT of a track differ).
 for (const r of Object.values(routes).filter((r) => !("x-public" in r))) app.on(r.method.toUpperCase(), r.path.replace(/{(\w+)}/g, ":$1"), requireScopes(r["x-scopes"], r["x-upload"]));
 

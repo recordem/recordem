@@ -24,7 +24,7 @@ function discover(authUrl: string): Promise<Verifier> {
 const fail = (status: 401 | 403, error: string, message: string) =>
   new HTTPException(status, { res: Response.json({ error, message }, { status, headers: status === 401 ? { "www-authenticate": `Bearer error="${error}"` } : {} }) });
 
-export function authenticate(opts: { authUrl: string; audience: string }): MiddlewareHandler<Env> {
+export function authenticate(opts: { authUrl: string; audience: string | string[] }): MiddlewareHandler<Env> {
   return async (c, next) => {
     const token = c.req.header("authorization")?.match(/^Bearer (.+)$/i)?.[1];
     if (!token) throw fail(401, "invalid_token", "a Bearer access token is required");
