@@ -1,0 +1,16 @@
+{
+  "name": "@recordem/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "description": "Recordem from the terminal: find meetings, search what was said, read transcripts and notes",
+  "bin": {
+    "recordem": "./src/main.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@recordem/sdk": "workspace:*"
+  }
+}
