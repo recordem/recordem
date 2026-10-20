@@ -249,9 +249,7 @@ function RecordingView({ rec, onChange, details, onCloseDetails }: {
       {details && <Details rec={rec} t={t} notes={notes} onClose={onCloseDetails} />}
       {missing && !live && <p className="muted">No transcript for this recording.</p>}
       <ol className="transcript">
-        {segs.map((s, i) => {
-          const who = speakerName(s, segs, names);
-          const same = i > 0 && speakerName(segs[i - 1], segs, names) === who;
+        {turns(segs, names).map(({ s, i, who, same, asides }) => {
           const nameable = s.channel === "system" && !!s.speaker && !live;
           return (
             <li key={i} className={`${s.channel}${i === now ? " now" : ""}${same ? " cont" : ""}`}>
@@ -260,7 +258,7 @@ function RecordingView({ rec, onChange, details, onCloseDetails }: {
                     taken={names.filter((n) => n.label !== s.speaker).map((n) => n.name)} onPick={(name) => rename(s.speaker!, name)} />
                 : <span className="who">{who}</span>)}
               <button className="ts" onClick={() => seek(s)} disabled={!src} title="Play from here">{clock(s.start_ms)}</button>
-              <p>{s.text}</p>
+              <p>{s.text}{asides.map((a) => <span key={a.i} className="aside"> {a.who}: {a.s.text}</span>)}</p>
             </li>
           );
         })}
@@ -268,6 +266,25 @@ function RecordingView({ rec, onChange, details, onCloseDetails }: {
       <div ref={bottom} />
     </>
   );
+}
+
+type Row = { s: Segment; i: number; who: string; same: boolean; asides: { s: Segment; i: number; who: string }[] };
+
+/** The transcript as turns. A short "yeah" or "mm-hmm" from someone else while one person is talking goes along with
+ * that person's line instead of cutting their turn in three. */
+function turns(segs: Segment[], names: SpeakerName[]): Row[] {
+  const who = segs.map((s) => speakerName(s, segs, names));
+  const short = (s: Segment) => s.end_ms - s.start_ms <= 2_000 && s.text.trim().split(/\s+/).length <= 4;
+  const rows: Row[] = [];
+  segs.forEach((s, i) => {
+    const last = rows.at(-1);
+    if (last && who[i] !== last.who && short(s)) {
+      const next = segs.findIndex((x, j) => j > i && !(who[j] !== last.who && short(x)));
+      if (next !== -1 && who[next] === last.who) { last.asides.push({ s, i, who: who[i] }); return; }
+    }
+    rows.push({ s, i, who: who[i], same: last?.who === who[i], asides: [] });
+  });
+  return rows;
 }
 
 /** Who a voice is: one of the people the call listed (the ones not yet given to another voice first), or a name typed
