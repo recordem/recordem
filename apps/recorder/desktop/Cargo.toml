@@ -1,0 +1,19 @@
+[package]
+name = "recordem-desktop-engine"
+version = "0.1.0"
+edition = "2024"
+description = "recordem-desktop: the Recordem engine as an executable an app ships and drives over stdin/stdout"
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "recordem-desktop"
+path = "src/main.rs"
+
+[dependencies]
+recordem-engine = { path = "../engine" }
+recordem-desktop = { path = "../desktop-client" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"

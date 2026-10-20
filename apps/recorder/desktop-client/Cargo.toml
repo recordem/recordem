@@ -1,0 +1,14 @@
+[package]
+name = "recordem-desktop"
+version = "0.1.0"
+edition = "2024"
+description = "Records calls on a desktop from your app: a client of the recordem-desktop engine (Recordem Desktop SDK)"
+license = "MIT"
+repository = "https://github.com/recordem/recordem"
+homepage = "https://github.com/recordem/recordem/tree/main/apps/recorder/desktop-client"
+keywords = ["recording", "transcription", "meetings", "sdk"]
+categories = ["api-bindings", "multimedia::audio"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

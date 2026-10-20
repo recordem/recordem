@@ -48,6 +48,7 @@ fn write(w: &mut hound::WavWriter<std::io::BufWriter<std::fs::File>>, samples: &
 /// app can warn when a channel stayed silent (usually a missing macOS permission). `live`, when given, gets a copy of
 /// every frame (the live transcript); it is dropped, which ends that transcript, when the recording ends. While
 /// `muted` is on, the mic is written (and sent live) as silence; its peak still counts, as a check of the permission.
+/// While `paused` is on, both channels are silence: the files keep the call's clock, so the names still line up.
 /// `voice_hq` adds mic_hq.wav (48 kHz, no AEC); if that capture can't open, the recording goes on without it.
 /// `voices` gets the system channel as it is written, for diarize.rs.
 ///
@@ -56,7 +57,7 @@ fn write(w: &mut hound::WavWriter<std::io::BufWriter<std::fs::File>>, samples: &
 /// the mic follows the macOS default when it changes mid-call (a headset put on, a pick in Meet), and a mic that
 /// hands over nothing but exact zeros — a device gone away under the stream, never a quiet room — is opened again a
 /// few times, slower each time. Only the mic restarts; the call's audio never stops.
-pub async fn record(dir: &Path, mic_device: Option<String>, voice_hq: bool, stop: CancellationToken, live: Option<std::sync::mpsc::Sender<crate::live::Frame>>, voices: std::sync::mpsc::Sender<Arc<[f32]>>, muted: Arc<AtomicBool>) -> anyhow::Result<(f32, f32)> {
+pub async fn record(dir: &Path, mic_device: Option<String>, voice_hq: bool, stop: CancellationToken, live: Option<std::sync::mpsc::Sender<crate::live::Frame>>, voices: std::sync::mpsc::Sender<Arc<[f32]>>, muted: Arc<AtomicBool>, paused: Arc<AtomicBool>) -> anyhow::Result<(f32, f32)> {
     std::fs::create_dir_all(dir)?;
     let f = files(dir);
     let mut mic = writer(&f.mic)?;
@@ -102,7 +103,8 @@ pub async fn record(dir: &Path, mic_device: Option<String>, voice_hq: bool, stop
                         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
                         crate::participants::ME_AUDIBLE_AT.store(now, Ordering::Relaxed);
                     }
-                    if muted.load(Ordering::Relaxed) {
+                    let pause = paused.load(Ordering::Relaxed);
+                    if muted.load(Ordering::Relaxed) || pause {
                         m = vec![0.0; m.len()].into();
                     }
                     let loud = fr.raw_speaker.iter().fold(0f32, |a, x| a.max(x.abs()));
@@ -111,12 +113,13 @@ pub async fn record(dir: &Path, mic_device: Option<String>, voice_hq: bool, stop
                         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
                         crate::participants::REMOTE_AUDIBLE_AT.store(now, Ordering::Relaxed);
                     }
+                    let speaker: Arc<[f32]> = if pause { vec![0.0; fr.raw_speaker.len()].into() } else { fr.raw_speaker.clone() };
                     write(&mut mic, &m)?;
-                    write(&mut system, &fr.raw_speaker)?;
+                    write(&mut system, &speaker)?;
                     if let Some(tx) = &live {
-                        let _ = tx.send(crate::live::Frame { mic: m.to_vec(), system: fr.raw_speaker.to_vec() });
+                        let _ = tx.send(crate::live::Frame { mic: m.to_vec(), system: speaker.to_vec() });
                     }
-                    let _ = voices.send(fr.raw_speaker.clone());
+                    let _ = voices.send(speaker);
                 }
                 // Both channels down at once: silence for the time they were gone.
                 Some(Ok(CaptureEvent::Gap(fr))) => {
@@ -139,7 +142,7 @@ pub async fn record(dir: &Path, mic_device: Option<String>, voice_hq: bool, stop
             },
             frame = async { match hq.as_mut() { Some(s) => s.next().await, None => std::future::pending().await } } => match (frame, hq_file.as_mut()) {
                 (Some(Ok(fr)), Some(w)) => {
-                    if muted.load(Ordering::Relaxed) {
+                    if muted.load(Ordering::Relaxed) || paused.load(Ordering::Relaxed) {
                         write(w, &vec![0.0; fr.raw_mic.len()])?;
                     } else {
                         write(w, &fr.raw_mic)?;

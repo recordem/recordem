@@ -44,17 +44,18 @@ if [ -f "$KC" ]; then
 fi
 [ "$IDENTITY" = "-" ] && echo "! no dev certificate (run --setup): ad-hoc signature, permissions reset on every build" >&2
 ../parakeet/build.sh   # the Parakeet engine's helper, bundled next to the app's executable
+../scripts/engine.sh   # recordem-desktop, the engine the app records with, bundled next to it too
 RECORDEM_APP="Recordem Dev" RECORDEM_SCHEME=recordem-dev APPLE_SIGNING_IDENTITY="$IDENTITY" cargo tauri build --bundles app \
   --config '{"productName": "Recordem Dev", "identifier": "dev.recordem.recorder.dev", "bundle": {"icon": ["icons/dev/32x32.png", "icons/dev/128x128.png", "icons/dev/128x128@2x.png", "icons/dev/icon.icns"]}, "plugins": {"deep-link": {"desktop": {"schemes": ["recordem-dev"]}}}}'
 
 REC="$HOME/Library/Application Support/Recordem Dev/recordings"
 # A recording in progress writes its WAVs every 100 ms; one left unsent (offline, a crash) is not in progress.
 if [ -d "$REC" ] && [ -n "$(find "$REC" -name '*.wav' -mtime -15s 2>/dev/null | head -1)" ]; then
-  echo "a recording is in progress: not installing (target/release/bundle/macos/Recordem Dev.app)"; exit 0
+  echo "a recording is in progress: not installing (../target/release/bundle/macos/Recordem Dev.app)"; exit 0
 fi
 APP="/Applications/Recordem Dev.app"
 for a in Recordem "Recordem Dev"; do osascript -e "quit app \"$a\"" 2>/dev/null || true; done
 sleep 2; pkill -f "/Applications/Recordem.app" || true; pkill -f "$APP" || true
-rm -rf "$APP" && cp -R "target/release/bundle/macos/Recordem Dev.app" /Applications/
+rm -rf "$APP" && cp -R "../target/release/bundle/macos/Recordem Dev.app" /Applications/
 open -a "$APP"
 echo "✓ installed $APP ($IDENTITY); the release is quit — open it again when done"

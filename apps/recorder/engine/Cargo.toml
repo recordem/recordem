@@ -1,0 +1,59 @@
+[package]
+name = "recordem-engine"
+version = "0.1.0"
+edition = "2024"
+description = "Records a call on this Mac, transcribes it locally and sends it to a Recordem server with an upload token"
+license = "MIT"
+publish = false
+
+[features]
+# The asr-bench tool: cargo run --release -p recordem-engine --features bench --bin asr-bench -- …
+bench = []
+
+[[bin]]
+name = "asr-bench"
+required-features = ["bench"]
+
+[dependencies]
+# The protocol types the engine speaks (desktop-client/src/protocol.rs).
+recordem-desktop = { path = "../desktop-client" }
+# Capture (mic + system audio, echo-cancelled) and call detection come from Anarlog's MIT crates, pinned to one commit.
+# Their workspace pins versions we don't inherit as a git dependency: Cargo.lock was seeded from theirs (see README).
+anlg-audio = { git = "https://github.com/fastrepl/anarlog", rev = "53e3624ba499fbd0900de66c75a01f23877cc276", package = "audio" }
+anlg-audio-actual = { git = "https://github.com/fastrepl/anarlog", rev = "53e3624ba499fbd0900de66c75a01f23877cc276", package = "audio-actual" }
+# Following the macOS default mic when it changes mid-call (capture.rs).
+anlg-device-monitor = { git = "https://github.com/fastrepl/anarlog", rev = "53e3624ba499fbd0900de66c75a01f23877cc276", package = "device-monitor" }
+anlg-audio-device = { git = "https://github.com/fastrepl/anarlog", rev = "53e3624ba499fbd0900de66c75a01f23877cc276", package = "audio-device" }
+anlg-detect = { git = "https://github.com/fastrepl/anarlog", rev = "53e3624ba499fbd0900de66c75a01f23877cc276", package = "detect", features = ["mic", "list"] }
+# Telling the voices on the other side apart (pyannote segmentation + WeSpeaker embeddings, both built into the binary,
+# ~32 MB), on the Neural Engine through CoreML: ~50 s for 20 min of call.
+# The same pipeline run while the call goes on (diarize.rs) needs its embedding model directly.
+anlg-embedding = { git = "https://github.com/fastrepl/anarlog", rev = "53e3624ba499fbd0900de66c75a01f23877cc276", package = "embedding", features = ["coreml"] }
+anlg-pyannote = { git = "https://github.com/fastrepl/anarlog", rev = "53e3624ba499fbd0900de66c75a01f23877cc276", package = "pyannote-local", features = ["coreml"] }
+# Permission status and prompts (permissions.rs). System audio has no public status API: Anarlog's tcc crate (MIT)
+# reads it through TCC. Microphone through AVFoundation; Accessibility through ApplicationServices.
+anlg-tcc = { git = "https://github.com/fastrepl/anarlog", rev = "53e3624ba499fbd0900de66c75a01f23877cc276", package = "tcc" }
+objc2 = "0.6"
+block2 = "0.6"
+objc2-av-foundation = { version = "0.3", default-features = false, features = ["std", "AVCaptureDevice", "AVMediaFormat", "block2"] }
+macos-accessibility-client = "0.0.1"
+# Reading the call app's mute button (mute.rs): only RunningApp, to find its process; already built for anlg-detect.
+cidre = { version = "0.15", default-features = false, features = ["app"] }
+# Who is in the call and who speaks (participants.rs): the participants crates next door (crates/, PARTICIPANTS.md).
+recordem-ax = { path = "../crates/ax" }
+recordem-scrape = { path = "../crates/scrape" }
+recordem-timeline = { path = "../crates/timeline" }
+
+whisper-rs = { version = "0.15", features = ["metal"] }
+hound = "3.5"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "io-std", "io-util"] }
+tokio-util = "0.7"
+futures-util = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+flate2 = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+anyhow = "1"
+dirs = "6"

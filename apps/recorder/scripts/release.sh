@@ -22,8 +22,8 @@ fi
 IDENTITY="${SIGNING_IDENTITY:-$(security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -1)}"
 [ -n "$IDENTITY" ] || { echo "no 'Developer ID Application' certificate in the keychain" >&2; exit 1; }
 VERSION="$(/usr/bin/python3 -c 'import json; print(json.load(open("tauri.conf.json"))["version"])')"
-APP="target/release/bundle/macos/Recordem.app"
-OUT="target/release/dist"
+APP="../target/release/bundle/macos/Recordem.app"
+OUT="../target/release/dist"
 DMG="$OUT/Recordem-$VERSION.dmg"
 
 # A release runs on any Apple Silicon Mac, so whisper.cpp must not tune for the build machine (-mcpu=native): ggml
@@ -32,6 +32,7 @@ export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git log -1 --format=%ct)}"
 
 echo "→ Recordem $VERSION, signed by: $IDENTITY"
 ../parakeet/build.sh   # the Parakeet engine's helper, bundled next to the app's executable
+../scripts/engine.sh   # recordem-desktop, the engine the app records with, bundled next to it too
 APPLE_SIGNING_IDENTITY="$IDENTITY" cargo tauri build --bundles app
 
 notarize() {   # $1: a .zip or .dmg

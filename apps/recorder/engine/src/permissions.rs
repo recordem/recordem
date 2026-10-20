@@ -1,5 +1,5 @@
-// What macOS must allow before the recorder can do its job, checked and asked for in one place. The onboarding step
-// after signing in asks for the required ones; Settings → Permissions lists them all:
+// What macOS must allow before the engine can do its job, checked and asked for in one place (for the app hosting it:
+// macOS asks in the name of the app the engine ships in). The host's onboarding asks for the required ones:
 //   microphone      your voice                                   required
 //   system_audio    the call's audio (Core Audio tap)            required
 //   accessibility   the meeting window's title (the call code)   recommended: links recordings to meetings by link
@@ -23,6 +23,37 @@ pub struct Item {
     pub id: &'static str,
     pub status: Status,
     pub required: bool,
+}
+
+impl Item {
+    /// As the protocol says it.
+    pub fn public(self) -> recordem_desktop::PermissionItem {
+        use recordem_desktop::{Permission as P, PermissionStatus as S};
+        let permission = match self.id {
+            "microphone" => P::Microphone,
+            "system_audio" => P::SystemAudio,
+            "accessibility" => P::Accessibility,
+            _ => P::Automation,
+        };
+        let status = match self.status {
+            Status::Granted => S::Granted,
+            Status::Denied => S::Denied,
+            Status::NotAsked => S::NotRequested,
+            Status::Unknown => S::Unknown,
+        };
+        recordem_desktop::PermissionItem { permission, status, required: self.required }
+    }
+}
+
+/// A protocol permission's id here.
+pub fn id(p: recordem_desktop::Permission) -> &'static str {
+    use recordem_desktop::Permission as P;
+    match p {
+        P::Microphone => "microphone",
+        P::SystemAudio => "system_audio",
+        P::Accessibility => "accessibility",
+        P::Automation => "automation",
+    }
 }
 
 pub fn microphone() -> Status {
@@ -58,9 +89,9 @@ pub fn system_audio() -> Status {
 fn request_system_audio() {
     use futures_util::StreamExt;
     if let Ok(mut s) = anlg_audio_actual::AudioInput::from_speaker_capture(16_000, 1600) {
-        let _ = tauri::async_runtime::block_on(async {
-            tokio::time::timeout(std::time::Duration::from_secs(2), s.next()).await
-        });
+        if let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_all().build() {
+            let _ = rt.block_on(async { tokio::time::timeout(std::time::Duration::from_secs(2), s.next()).await });
+        }
     }
 }
 

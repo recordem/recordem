@@ -1,8 +1,7 @@
 // Where the recorder keeps its state: ~/Library/Application Support/Recordem/ ("Recordem Dev/" for a dev build)
 //   config.json            the server's addresses, the sign-in tokens, languages, call behaviour, mic, vocabulary
-//   models/                Whisper and VAD models (downloaded once)
-//   recordings/<id>/       one call: mic.wav, system.wav, mic_hq.wav, call.m4a, voice.m4a, meta.json, transcript.json;
-//                          audio deleted once sent unless "keep a copy" is on
+//   icons/                 call apps' icons for the prompt
+//   models/, recordings/   the engine's (recordem-desktop), which gets this folder as its data dir
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -85,11 +84,13 @@ fn default_languages() -> String {
     DEFAULT_LANGUAGES.into()
 }
 
-/// "pt,en" → ["pt", "en"]; nothing usable → the default pair. Codes are Whisper's (pt, en, es, …).
+/// "pt,en" → ["pt", "en"]; nothing usable → the default pair. Codes are Whisper's (pt, en, es, …): the engine drops
+/// one it doesn't know.
 pub fn languages(s: &str) -> Vec<String> {
     let mut out: Vec<String> = vec![];
     for l in s.split(',').map(|l| l.trim().to_lowercase()) {
-        if whisper_rs::get_lang_id(&l).is_some() && !out.contains(&l) {
+        let code = (2..=3).contains(&l.len()) && l.chars().all(|c| c.is_ascii_lowercase());
+        if code && !out.contains(&l) {
             out.push(l);
         }
     }
@@ -118,16 +119,9 @@ fn dev_build() -> bool {
 pub const APP: &str = match option_env!("RECORDEM_APP") { Some(a) => a, None => "Recordem" };
 pub const SCHEME: &str = match option_env!("RECORDEM_SCHEME") { Some(s) => s, None => "recordem" };
 
+/// Also the engine's data dir (models/, recordings/, profiles.json): it keeps them where the app always has.
 pub fn root() -> PathBuf {
     dirs::data_dir().expect("no data dir").join(APP)
-}
-
-pub fn recordings_dir() -> PathBuf {
-    root().join("recordings")
-}
-
-pub fn models_dir() -> PathBuf {
-    root().join("models")
 }
 
 pub fn load() -> Config {

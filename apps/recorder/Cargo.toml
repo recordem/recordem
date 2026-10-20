@@ -1,0 +1,7 @@
+# The recorder: the app (src-tauri), the engine it records with (engine), that engine as an executable any app can ship
+# (desktop, `recordem-desktop`), and the client apps drive it with (desktop-client, crate `recordem-desktop`).
+# crates/ (the participants reader) is a workspace of its own, used here by path.
+[workspace]
+resolver = "3"
+members = ["src-tauri", "engine", "desktop", "desktop-client"]
+exclude = ["crates", "parakeet"]

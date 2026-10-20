@@ -1,86 +1,52 @@
-// Recordem recorder: notices a call (a meeting app or browser starts using the mic), asks the Recordem API what the
-// call is, records mic + system audio (and your own voice at 48 kHz), transcribes on this Mac and delivers the text,
-// then the audio (AAC).
+// Recordem recorder: the menu-bar app around the Recordem engine. The engine (recordem-desktop, a sidecar, driven
+// through the Desktop SDK's client like any other app would) notices calls, records, transcribes and sends; the app asks
+// the API what a call is, asks you whether to record it, creates the recording with an upload token for the engine, and
+// shows how it goes.
 //
 // Phases: setup → models → permissions → idle ⇄ detected → recording → processing → done | failed → idle.
-// A recording that couldn't be transcribed or sent stays in recordings/<id>/ and is resumed when the app opens.
+// A recording that couldn't be sent stays with the engine and is resumed when the app opens; one whose upload token is
+// missing or expired gets a fresh one here.
 mod api;
-mod apptexts;
-mod asr;
-mod bench;
-mod callurl;
-mod capture;
 mod config;
-mod diarize;
-mod dumps;
 mod icons;
-mod live;
-mod models;
-mod mute;
 mod oauth;
-mod participants;
-mod permissions;
-mod profiles;
-mod transcribe;
 
-use api::{Match, Transcript};
+use api::Match;
+use recordem_desktop::{Client, Event, Permission, PermissionItem, PermissionStatus, Settings, StartRecording, UploadStatus, Window};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
-use tauri::menu::{Menu, MenuItem};
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use tauri::image::Image;
+use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, State, WindowEvent};
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_opener::OpenerExt;
-use tokio_util::sync::CancellationToken;
-
-/// Apps whose mic use means "probably a call": browsers (Meet, Teams and Zoom on the web) and the native clients.
-const MEETING_APPS: &[(&str, Option<&str>)] = &[
-    ("us.zoom.xos", Some("zoom")),
-    ("com.microsoft.teams2", Some("microsoft_teams")),
-    ("com.microsoft.teams", Some("microsoft_teams")),
-    ("com.cisco.webexmeetingsapp", Some("webex")),
-    ("com.google.Chrome", None),
-    ("com.apple.Safari", None),
-    ("company.thebrowser.Browser", None),
-    ("com.microsoft.edgemac", None),
-    ("com.brave.Browser", None),
-    ("org.mozilla.firefox", None),
-];
 
 /// Menu-bar icons: a template (macOS tints it for light and dark bars) and a red one while recording.
 const TRAY: &[u8] = include_bytes!("../icons/tray.png");
 // A dev build records in violet (icons/dev, scripts/icons.py), and says "DEV" next to its menu-bar icon.
 const TRAY_REC: &[u8] = if DEV { include_bytes!("../icons/dev/tray-rec.png") } else { include_bytes!("../icons/tray-rec.png") };
 
-/// After the call app lets go of the mic, wait this long before stopping (a reconnect or device switch is not the end).
-const STOP_GRACE_SECS: u64 = 45;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct Call {
     app_id: Option<String>,
     app_name: Option<String>,
     app: Option<String>, // google_meet | zoom | microsoft_teams | … for the API
     title: Option<String>,
     url: Option<String>,
+    /// The engine's window for this call; none for "record now".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    window_id: Option<String>,
 }
 
-/// What a recording knows before it has a transcript; saved as meta.json next to the audio.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct Meta {
-    id: String,
-    /// The meeting on the server: the one picked from the matches, or the one created with the recording.
-    #[serde(default)]
-    meeting_id: Option<String>,
-    title: Option<String>,
-    call: Call,
-    started_at: String,
-    ended_at: Option<String>,
-    language: String, // the languages its turns may be in ("pt,en"); a single one in recordings before 0.3.0
+impl Call {
+    fn of(w: &Window) -> Call {
+        Call { app_id: w.app_id.clone(), app_name: w.app_name.clone(), app: w.platform.clone(), title: w.title.clone(), url: w.url.clone(), window_id: Some(w.id.clone()) }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -89,7 +55,7 @@ enum Phase {
     Setup,
     Models { done: u64, total: u64, error: Option<String> },
     /// The required permissions, each with its status (filled in by `status`). The others are in Settings.
-    Permissions { items: Vec<permissions::Item> },
+    Permissions { items: Vec<Item> },
     Idle,
     Detected { call: Call, matches: Option<Vec<Match>>, error: Option<String> },
     Recording { id: String, started_at: String, title: Option<String>, app_name: Option<String>, live: bool },
@@ -98,42 +64,108 @@ enum Phase {
     Failed { message: String },
 }
 
+/// A permission as the window shows it.
+#[derive(Debug, Clone, Serialize)]
+struct Item {
+    id: &'static str,
+    status: &'static str, // granted | denied | not_asked | unknown
+    required: bool,
+}
+
+fn item(p: &PermissionItem) -> Item {
+    let id = match p.permission {
+        Permission::Microphone => "microphone",
+        Permission::SystemAudio => "system_audio",
+        Permission::Accessibility => "accessibility",
+        Permission::Automation => "automation",
+    };
+    let status = match p.status {
+        PermissionStatus::Granted => "granted",
+        PermissionStatus::Denied => "denied",
+        PermissionStatus::NotRequested => "not_asked",
+        PermissionStatus::Unknown => "unknown",
+    };
+    Item { id, status, required: p.required }
+}
+
+fn permission(id: &str) -> Option<Permission> {
+    Some(match id {
+        "microphone" => Permission::Microphone,
+        "system_audio" => Permission::SystemAudio,
+        "accessibility" => Permission::Accessibility,
+        "automation" => Permission::Automation,
+        _ => return None,
+    })
+}
+
+/// What the app knows of a recording, for the server (creating it) and the window (its name, its meeting).
+#[derive(Debug, Clone, Default)]
+struct Known {
+    started_at: String,
+    call: Call,
+    meeting_id: Option<String>,
+    title: Option<String>,
+    warning: Option<String>,
+}
+
+/// The recording going on.
+#[derive(Debug, Clone)]
+struct Recorded {
+    id: String,
+    window_id: String,
+}
+
 #[derive(Default)]
 struct Inner {
     phase: Option<Phase>,
-    stop: Option<CancellationToken>,
-    recording: Option<Meta>,
-    stop_timer: Option<CancellationToken>,
+    recording: Option<Recorded>,
+    known: HashMap<String, Known>,
     pending: usize,
 }
 
 #[derive(Default)]
 struct AppState {
     inner: Mutex<Inner>,
-    model_bytes: Arc<AtomicU64>,
-    progress: Arc<AtomicU32>,
-    /// The recording's mic is silence while on (mute.rs); off when a recording starts.
+    engine: OnceLock<Client>,
+    model_bytes: AtomicU64,
+    models_ready: AtomicBool,
+    perms: Mutex<Vec<PermissionItem>>,
+    /// The recording's mic is silence while on (the toggle, or the call's own button); off when a recording starts.
     muted: Arc<AtomicBool>,
     mute_item: Mutex<Option<MenuItem<tauri::Wry>>>,
 }
 
 type Shared = Arc<AppState>;
 
-/// The languages a transcript came out in, most spoken first ("pt,en"), for the API's `language`.
-fn spoken(segments: &[api::Segment]) -> String {
-    let mut n: Vec<(String, usize)> = vec![];
-    for l in segments.iter().filter_map(|s| s.language.as_ref()) {
-        match n.iter_mut().find(|(x, _)| x == l) {
-            Some((_, c)) => *c += 1,
-            None => n.push((l.clone(), 1)),
-        }
-    }
-    n.sort_by(|a, b| b.1.cmp(&a.1));
-    n.into_iter().map(|(l, _)| l).collect::<Vec<_>>().join(",")
-}
-
 fn now() -> String {
     chrono::Utc::now().to_rfc3339()
+}
+
+fn engine(app: &AppHandle) -> Result<Client, String> {
+    app.state::<Shared>().engine.get().cloned().ok_or_else(|| "the recording engine isn't running".to_string())
+}
+
+/// The total size of the speech models (Whisper large-v3-turbo q5_0 + Silero VAD), for the download bar until the
+/// engine reports its own.
+const MODELS_TOTAL: u64 = 574_041_195 + 885_098;
+
+/// The engine's settings, from the app's.
+fn settings(c: &config::Config) -> Settings {
+    Settings {
+        api_url: Some(c.api_url.clone()),
+        data_dir: Some(config::root().to_string_lossy().to_string()),
+        languages: Some(c.languages.clone()),
+        vocabulary: Some(c.vocabulary.clone()),
+        asr_live: Some(c.asr_live.clone()),
+        asr_final: Some(c.asr_final.clone()),
+        live: Some(c.live),
+        mic_device: Some(c.mic_device.clone().unwrap_or_default()),
+        voice_hq: Some(c.voice_hq),
+        keep_audio: Some(c.keep_audio),
+        share_reader_dumps: Some(c.share_reader_dumps),
+        self_name: Some(c.account.clone()),
+        detect: Some(true),
+    }
 }
 
 fn set_phase(app: &AppHandle, p: Phase) {
@@ -175,8 +207,8 @@ fn mute_label(muted: bool) -> &'static str {
     if muted { "Unmute the microphone" } else { "Mute the microphone" }
 }
 
-/// Mute on or off for the recording (the toggle, or the call's own button): the tray follows.
-fn set_muted(app: &AppHandle, on: bool) {
+/// The recording's mute changed (the toggle, or the call's own button, as the engine tells): the tray follows.
+fn show_muted(app: &AppHandle, on: bool) {
     let s = app.state::<Shared>();
     s.muted.store(on, Ordering::Relaxed);
     if let Some(item) = s.mute_item.lock().unwrap().as_ref() {
@@ -286,13 +318,30 @@ fn notify(app: &AppHandle, title: &str, body: &str) {
     let _ = app.notification().builder().title(title).body(body).show();
 }
 
+/// The permissions as the engine last said; asked of it when it hasn't yet.
+fn permissions(app: &AppHandle) -> Vec<PermissionItem> {
+    let st = app.state::<Shared>();
+    let cached = st.perms.lock().unwrap().clone();
+    if cached.len() == 4 {
+        return cached;
+    }
+    let fresh = engine(app).ok().and_then(|e| e.permissions().ok()).unwrap_or_default();
+    *st.perms.lock().unwrap() = fresh.clone();
+    fresh
+}
+
+fn permissions_ready(app: &AppHandle) -> bool {
+    let all = permissions(app);
+    !all.is_empty() && all.iter().filter(|p| p.required).all(|p| p.status == PermissionStatus::Granted)
+}
+
 /// The phase the app should be in when nothing is happening.
-fn resting(cfg: &config::Config) -> Phase {
+fn resting(app: &AppHandle, cfg: &config::Config) -> Phase {
     if !cfg.signed_in() {
         Phase::Setup
-    } else if !models::ready() {
-        Phase::Models { done: 0, total: models::total(), error: None }
-    } else if !cfg.onboarded || !permissions::ready() {
+    } else if !app.state::<Shared>().models_ready.load(Ordering::Relaxed) {
+        Phase::Models { done: 0, total: MODELS_TOTAL, error: None }
+    } else if !cfg.onboarded || !permissions_ready(app) {
         Phase::Permissions { items: vec![] }
     } else {
         Phase::Idle
@@ -310,20 +359,20 @@ struct Status {
 }
 
 #[tauri::command]
-fn status(state: State<'_, Shared>) -> Status {
-    let inner = state.inner.lock().unwrap();
-    let mut phase = inner.phase.clone().unwrap_or_else(|| resting(&config::load()));
+fn status(app: AppHandle, state: State<'_, Shared>) -> Status {
+    let current = state.inner.lock().unwrap().phase.clone();
+    let mut phase = current.unwrap_or_else(|| resting(&app, &config::load()));
     // Idle again with a required permission gone (revoked in System Settings): back to the permissions step.
-    if matches!(phase, Phase::Idle) && !permissions::ready() {
+    if matches!(phase, Phase::Idle) && !permissions_ready(&app) {
         phase = Phase::Permissions { items: vec![] };
     }
     match &mut phase {
-        Phase::Permissions { items } => *items = permissions::all().into_iter().filter(|i| i.required).collect(),
+        Phase::Permissions { items } => *items = permissions(&app).iter().filter(|i| i.required).map(item).collect(),
         Phase::Models { done, .. } => *done = state.model_bytes.load(Ordering::Relaxed),
-        Phase::Processing { progress, step, .. } if step == "transcribing" => *progress = state.progress.load(Ordering::Relaxed),
         _ => {}
     }
-    Status { phase, pending: inner.pending, muted: state.muted.load(Ordering::Relaxed) }
+    let pending = state.inner.lock().unwrap().pending;
+    Status { phase, pending, muted: state.muted.load(Ordering::Relaxed) }
 }
 
 #[derive(Serialize)]
@@ -346,7 +395,7 @@ struct ConfigView {
 }
 
 #[tauri::command]
-fn get_config() -> ConfigView {
+fn get_config(app: AppHandle) -> ConfigView {
     let c = config::load();
     ConfigView {
         signed_in: c.signed_in(),
@@ -363,7 +412,7 @@ fn get_config() -> ConfigView {
         mic_device: c.mic_device,
         vocabulary: c.vocabulary,
         live: c.live,
-        mics: capture::mics(),
+        mics: engine(&app).ok().and_then(|e| e.list_devices().ok()).unwrap_or_default(),
     }
 }
 
@@ -380,6 +429,15 @@ fn set_addresses(c: &mut config::Config, api: &str, auth: &str, web: &str) {
     c.web_url = clean(web);
 }
 
+/// The engine follows the app's settings (server, languages, mic…).
+fn configure_engine(app: &AppHandle, c: &config::Config) {
+    if let Ok(e) = engine(app)
+        && let Err(err) = e.configure(&settings(c))
+    {
+        eprintln!("engine settings: {err}");
+    }
+}
+
 /// "Sign in": opens the identity provider's sign-in in the browser; it comes back through recordem://oauth.
 async fn begin_login(app: &AppHandle) -> Result<(), String> {
     let url = oauth::begin().await.map_err(|e| format!("couldn't reach the server: {e}"))?;
@@ -391,6 +449,7 @@ async fn login(app: AppHandle, api_url: String, auth_url: String, web_url: Strin
     let mut c = config::load();
     set_addresses(&mut c, &api_url, &auth_url, &web_url);
     config::save(&c).map_err(|e| e.to_string())?;
+    configure_engine(&app, &c);
     begin_login(&app).await
 }
 
@@ -411,8 +470,10 @@ async fn signed_in(app: &AppHandle) -> Result<String, String> {
     }
     c.account = oauth::who(&c).await.unwrap_or_default();
     config::save(&c).map_err(|e| e.to_string())?;
+    configure_engine(app, &c);
     apply_autostart(app, c.launch_at_login);
-    set_phase(app, resting(&c));
+    set_phase(app, resting(app, &c));
+    resume(app.clone()).await;
     Ok(c.account)
 }
 
@@ -428,6 +489,7 @@ async fn on_link(app: AppHandle, url: tauri::Url) {
             if let (Some(api), Some(auth)) = (q.get("api"), q.get("auth")) {
                 set_addresses(&mut c, api, auth, q.get("web").map(String::as_str).unwrap_or(api));
                 let _ = config::save(&c);
+                configure_engine(&app, &c);
             }
             begin_login(&app).await
         }
@@ -498,6 +560,7 @@ fn save_config(app: AppHandle, input: ConfigInput) -> Result<(), String> {
     c.vocabulary = input.vocabulary;
     c.live = input.live;
     config::save(&c).map_err(|e| e.to_string())?;
+    configure_engine(&app, &c);
     apply_autostart(&app, c.launch_at_login);
     if !c.signed_in() {
         set_phase(&app, Phase::Setup);
@@ -507,48 +570,47 @@ fn save_config(app: AppHandle, input: ConfigInput) -> Result<(), String> {
 
 #[tauri::command]
 async fn download_models(app: AppHandle) -> Result<(), String> {
-    let st = app.state::<Shared>().inner().clone();
-    st.model_bytes.store(0, Ordering::Relaxed);
-    set_phase(&app, Phase::Models { done: 0, total: models::total(), error: None });
-    match models::download(st.model_bytes.clone()).await {
-        Ok(()) => {
-            set_phase(&app, resting(&config::load()));
-            Ok(())
-        }
-        Err(e) => {
-            set_phase(&app, Phase::Models { done: 0, total: models::total(), error: Some(e.to_string()) });
-            Err(e.to_string())
-        }
-    }
+    app.state::<Shared>().model_bytes.store(0, Ordering::Relaxed);
+    set_phase(&app, Phase::Models { done: 0, total: MODELS_TOTAL, error: None });
+    // Progress, and the end, come as model-download events.
+    engine(&app)?.download_models().map_err(|e| e.to_string())
 }
 
 /// Asks macOS for one permission (its prompt, or its pane in System Settings once refused).
 #[tauri::command]
-async fn request_permission(id: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || permissions::request(&id)).await.map_err(|e| e.to_string())
+async fn request_permission(app: AppHandle, id: String) -> Result<(), String> {
+    let p = permission(&id).ok_or("no such permission")?;
+    let e = engine(&app)?;
+    tauri::async_runtime::spawn_blocking(move || e.request_permission(p)).await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
+    // The window asks right after: the answer, not the cache.
+    *app.state::<Shared>().perms.lock().unwrap() = vec![];
+    Ok(())
 }
 
 /// Every permission with its status, for Settings → Permissions.
 #[tauri::command]
-fn permission_list() -> Vec<permissions::Item> {
-    permissions::all()
+fn permission_list(app: AppHandle) -> Vec<Item> {
+    permissions(&app).iter().map(item).collect()
 }
 
 #[tauri::command]
-fn open_permission(id: String) {
-    permissions::open_settings(&id);
+fn open_permission(app: AppHandle, id: String) {
+    if let (Ok(e), Some(p)) = (engine(&app), permission(&id)) {
+        let _ = e.open_permission_settings(p);
+    }
 }
 
 /// "Continue" on the permissions step (the required ones granted); also how Settings reopens the step.
 #[tauri::command]
 fn finish_onboarding(app: AppHandle) -> Result<(), String> {
-    if !permissions::ready() {
+    *app.state::<Shared>().perms.lock().unwrap() = vec![];
+    if !permissions_ready(&app) {
         return Err("the microphone and system audio permissions are needed to record".into());
     }
     let mut c = config::load();
     c.onboarded = true;
     config::save(&c).map_err(|e| e.to_string())?;
-    set_phase(&app, resting(&c));
+    set_phase(&app, resting(&app, &c));
     Ok(())
 }
 
@@ -558,9 +620,9 @@ async fn lookup(app: AppHandle, call: Option<Call>) -> Result<(), String> {
     detected(app, call, false).await
 }
 
-/// `auto`: called by the detector (may start recording on its own), not by a click.
+/// `auto`: called for the engine's call (may start recording on its own), not by a click.
 async fn detected(app: AppHandle, call: Option<Call>, auto: bool) -> Result<(), String> {
-    let call = call.unwrap_or(Call { app_id: None, app_name: None, app: None, title: None, url: None });
+    let call = call.unwrap_or_default();
     set_phase(&app, Phase::Detected { call: call.clone(), matches: None, error: None });
     let c = config::load();
     let req = api::ContextRequest { at: now(), url: call.url.as_deref(), app: call.app.as_deref(), title: call.title.as_deref() };
@@ -593,149 +655,76 @@ async fn start(app: AppHandle, meeting_id: Option<String>) -> Result<(), String>
     let (call, matches) = match st.inner.lock().unwrap().phase.clone() {
         Some(Phase::Detected { call, matches, .. }) => (call, matches.unwrap_or_default()),
         Some(Phase::Recording { .. }) => return Err("already recording".into()),
-        _ => (Call { app_id: None, app_name: None, app: None, title: None, url: None }, vec![]),
+        _ => (Call::default(), vec![]),
     };
     let picked = meeting_id.as_ref().and_then(|id| matches.into_iter().find(|m| &m.meeting_id == id));
-    let title = picked.as_ref().and_then(|m| m.title.clone()).or_else(|| call.title.as_deref().and_then(callurl::meaningful_title));
+    let title = picked.as_ref().and_then(|m| m.title.clone()).or_else(|| call.title.as_deref().and_then(recordem_desktop::meeting_title));
     let cfg = config::load();
-    let meta = Meta {
-        id: uuid::Uuid::new_v4().to_string(),
-        meeting_id: picked.map(|m| m.meeting_id),
-        title: title.clone(),
-        call: call.clone(),
-        started_at: now(),
-        ended_at: None,
-        language: cfg.languages.clone(),
+    let e = engine(&app)?;
+    // The call's own window when the engine saw it (participants and mute come from it); one of its own otherwise.
+    let window_id = match call.window_id.clone() {
+        Some(w) => w,
+        None => e.prepare_desktop_audio_recording().map_err(|e| e.to_string())?,
     };
-    let dir = config::recordings_dir().join(&meta.id);
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    write_json(&dir.join("meta.json"), &meta).map_err(|e| e.to_string())?;
-    let stop = CancellationToken::new();
+    let id = uuid::Uuid::new_v4().to_string();
+    let started_at = now();
+    let meeting_id = picked.map(|m| m.meeting_id);
+    // It starts right away, before the server answers: its upload token follows (register), and offline it waits.
+    e.start_recording(&StartRecording {
+        window_id: window_id.clone(),
+        upload_token: None,
+        recording_id: Some(id.clone()),
+        metadata: serde_json::json!({ "meeting_id": meeting_id, "title": title }),
+    })
+    .map_err(|e| e.to_string())?;
     st.muted.store(false, Ordering::Relaxed);
     {
         let mut inner = st.inner.lock().unwrap();
-        inner.stop = Some(stop.clone());
-        inner.recording = Some(meta.clone());
+        inner.recording = Some(Recorded { id: id.clone(), window_id });
+        inner.known.insert(id.clone(), Known { started_at: started_at.clone(), call: call.clone(), meeting_id, title: title.clone(), warning: None });
     }
-    set_phase(&app, Phase::Recording { id: meta.id.clone(), started_at: meta.started_at.clone(), title, app_name: call.app_name, live: cfg.live });
-    // The recording exists on the server from the start (the portal shows it live), and its meeting id comes back.
-    // Offline, it is created later, before delivering (same id, idempotent).
-    let created = {
-        let (app, cfg, meta) = (app.clone(), cfg.clone(), meta.clone());
-        tauri::async_runtime::spawn(async move { register(&app, &cfg, &meta).await.is_ok() })
-    };
-    // The live transcript: a thread transcribes as the capture goes, a task sends what it makes once the recording
-    // exists on the server.
-    let people = participants::Latest::default();
-    let (live_tx, live) = if cfg.live {
-        let (frames_tx, frames) = std::sync::mpsc::channel();
-        let (segs_tx, segs) = tokio::sync::mpsc::unbounded_channel();
-        let (langs, vocabulary, engine) = (cfg.languages.clone(), cfg.vocabulary.clone(), cfg.asr_live.clone());
-        let worker = std::thread::spawn(move || {
-            if let Err(e) = live::transcribe(frames, segs_tx, &langs, &vocabulary, &engine) {
-                eprintln!("live transcript stopped: {e}");
-            }
-        });
-        let (cfg2, id, stop2, people, dir2) = (cfg.clone(), meta.id.clone(), stop.clone(), people.clone(), dir.clone());
-        let sender = tauri::async_runtime::spawn(async move {
-            if created.await.unwrap_or(false) {
-                live::send(cfg2, id, segs, stop2, people, dir2).await;
-            }
-        });
-        (Some(frames_tx), Some((worker, sender)))
-    } else {
-        (None, None)
-    };
-    // Mute follows the call's own button where it can be read (Meet in a browser, the Zoom app): where it is and what
-    // it says come from the app's reader profile.
-    let source = call.app_id.as_deref().and_then(|id| {
-        let all = profiles::current();
-        let p = all.for_app(id, None).into_iter().find(|p| p.self_mic.is_some())?;
-        Some(mute::Reader { mic: p.self_mic.clone()?, links: p.links.clone() })
-    });
-    if let (Some(source), Some(id)) = (source, call.app_id.clone()) {
-        let app = app.clone();
-        mute::watch(source, id, stop.clone(), move |m| set_muted(&app, m));
-    }
-    // Who is in the call and who speaks, from the call app's window: shown live, names the voices after the call.
-    if let Some(id) = call.app_id.clone() {
-        participants::watch(id, dir.clone(), std::time::Instant::now(), stop.clone(), people);
-    }
+    set_phase(&app, Phase::Recording { id: id.clone(), started_at, title, app_name: call.app_name, live: cfg.live });
     let app2 = app.clone();
-    let muted = st.muted.clone();
     tauri::async_runtime::spawn(async move {
-        // The other side's voices are told apart as the call goes; the pass after it only clusters them.
-        let (voices_tx, voices_rx) = std::sync::mpsc::channel();
-        let vdir = dir.clone();
-        let voices = std::thread::spawn(move || diarize::during(voices_rx, &vdir));
-        let result = capture::record(&dir, cfg.mic_device.clone(), cfg.voice_hq, stop, live_tx, voices_tx, muted).await;
-        let _ = tauri::async_runtime::spawn_blocking(move || voices.join()).await;
-        // The capture dropped its end: the live thread finishes the turn it is on and stops, before the pass after
-        // the call needs Whisper. Its sender gets one last try.
-        if let Some((worker, sender)) = live {
-            let _ = tauri::async_runtime::spawn_blocking(move || worker.join()).await;
-            let _ = sender.await;
+        if let Err(e) = register(&app2, &id).await {
+            eprintln!("recording {id} not on the server yet: {e}");
         }
-        // meta.json again from disk: the meeting id may have arrived while recording.
-        let mut meta: Meta = read_json(&dir.join("meta.json")).unwrap_or(meta);
-        meta.ended_at = Some(now());
-        let _ = write_json(&dir.join("meta.json"), &meta);
-        {
-            let st = app2.state::<Shared>();
-            let mut inner = st.inner.lock().unwrap();
-            inner.stop = None;
-            inner.recording = None;
-            st.muted.store(false, Ordering::Relaxed);
-            if let Some(t) = inner.stop_timer.take() {
-                t.cancel();
-            }
-        }
-        let warning = match &result {
-            Ok((m, s)) if *m < 0.001 && *s < 0.001 => Some("No sound was captured. Check the Microphone and System Audio Recording permissions in System Settings → Privacy & Security.".to_string()),
-            Ok((m, _)) if *m < 0.001 => Some("The microphone captured nothing. Check the Microphone permission.".to_string()),
-            Ok((_, s)) if *s < 0.001 => Some("The call's audio wasn't captured. Check the System Audio Recording permission.".to_string()),
-            _ => None,
-        };
-        if let Err(e) = result {
-            set_phase(&app2, Phase::Failed { message: e.to_string() });
-            show(&app2);
-            return;
-        }
-        process(&app2, dir, warning).await;
     });
     Ok(())
 }
 
-/// Creates the recording on the server (idempotent by id) and keeps the meeting id it answers with: in memory for the
-/// running recording, and in meta.json.
-async fn register(app: &AppHandle, cfg: &config::Config, meta: &Meta) -> anyhow::Result<String> {
-    let r = api::create(cfg, &api::NewRecording {
-        id: &meta.id,
-        meeting_id: meta.meeting_id.as_deref(),
-        started_at: &meta.started_at,
-        url: meta.call.url.as_deref(),
-        app: meta.call.app.as_deref(),
-        title: meta.title.as_deref(),
+/// Creates the recording on the server (idempotent by id) with an upload token, and hands the token to the engine,
+/// which sends with it. Also how a recording whose token expired gets a fresh one.
+async fn register(app: &AppHandle, id: &str) -> anyhow::Result<String> {
+    let k = app.state::<Shared>().inner.lock().unwrap().known.get(id).cloned().unwrap_or_default();
+    let cfg = config::load();
+    let started_at = if k.started_at.is_empty() { now() } else { k.started_at.clone() };
+    let r = api::create(&cfg, &api::NewRecording {
+        id,
+        meeting_id: k.meeting_id.as_deref(),
+        started_at: &started_at,
+        url: k.call.url.as_deref(),
+        app: k.call.app.as_deref(),
+        title: k.title.as_deref(),
+        upload: true,
     })
     .await?;
-    let dir = config::recordings_dir().join(&meta.id);
-    if let Ok(mut m) = read_json::<Meta>(&dir.join("meta.json")) {
-        m.meeting_id = Some(r.meeting_id.clone());
-        let _ = write_json(&dir.join("meta.json"), &m);
+    if let Some(k) = app.state::<Shared>().inner.lock().unwrap().known.get_mut(id) {
+        k.meeting_id = Some(r.meeting_id.clone());
     }
-    if let Some(rec) = app.state::<Shared>().inner.lock().unwrap().recording.as_mut() {
-        if rec.id == meta.id {
-            rec.meeting_id = Some(r.meeting_id.clone());
-        }
-    }
+    let token = r.upload.ok_or_else(|| anyhow::anyhow!("the server gave no upload token"))?.token;
+    let e = engine(app).map_err(anyhow::Error::msg)?;
+    let id = id.to_string();
+    tauri::async_runtime::spawn_blocking(move || e.set_upload_token(&id, &token)).await??;
     Ok(r.meeting_id)
 }
 
 /// The meeting being recorded, in the portal (its transcript grows live there).
 #[tauri::command]
 async fn open_live(app: AppHandle) -> Result<(), String> {
-    let id = match app.state::<Shared>().inner.lock().unwrap().recording.as_ref() {
-        Some(m) => m.meeting_id.clone().ok_or("the recording isn't on the server yet")?,
+    let inner = app.state::<Shared>().inner.lock().unwrap().recording.clone();
+    let id = match inner {
+        Some(r) => app.state::<Shared>().inner.lock().unwrap().known.get(&r.id).and_then(|k| k.meeting_id.clone()).ok_or("the recording isn't on the server yet")?,
         None => return Err("nothing is being recorded".into()),
     };
     open(app, id)
@@ -744,13 +733,17 @@ async fn open_live(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn toggle_mute(app: AppHandle) {
     let on = !app.state::<Shared>().muted.load(Ordering::Relaxed);
-    set_muted(&app, on);
+    show_muted(&app, on);
+    if let Ok(e) = engine(&app) {
+        let _ = e.set_muted(on);
+    }
 }
 
 #[tauri::command]
-fn stop(state: State<'_, Shared>) {
-    if let Some(t) = state.inner.lock().unwrap().stop.take() {
-        t.cancel();
+fn stop(app: AppHandle) {
+    let rec = app.state::<Shared>().inner.lock().unwrap().recording.clone();
+    if let (Some(r), Ok(e)) = (rec, engine(&app)) {
+        let _ = e.stop_recording(&r.window_id);
     }
 }
 
@@ -762,7 +755,7 @@ fn show_main(app: AppHandle) {
 
 #[tauri::command]
 fn dismiss(app: AppHandle) {
-    set_phase(&app, resting(&config::load()));
+    set_phase(&app, resting(&app, &config::load()));
 }
 
 /// A meeting's page in the portal.
@@ -772,233 +765,180 @@ fn open(app: AppHandle, meeting_id: String) -> Result<(), String> {
     app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
 }
 
-// --- after a recording ------------------------------------------------------------------------------------------
+// --- the engine's events ------------------------------------------------------------------------------------------
 
-fn write_json<T: Serialize>(p: &std::path::Path, v: &T) -> anyhow::Result<()> {
-    std::fs::write(p, serde_json::to_vec_pretty(v)?)?;
-    Ok(())
-}
-
-fn read_json<T: for<'a> Deserialize<'a>>(p: &std::path::Path) -> anyhow::Result<T> {
-    Ok(serde_json::from_slice(&std::fs::read(p)?)?)
-}
-
-/// Transcribe (unless already done) and deliver one recording directory.
-async fn process(app: &AppHandle, dir: PathBuf, warning: Option<String>) {
-    let meta: Meta = match read_json(&dir.join("meta.json")) {
-        Ok(m) => m,
-        Err(e) => return set_phase(app, Phase::Failed { message: format!("unreadable recording: {e}") }),
-    };
-    let st = app.state::<Shared>().inner().clone();
-    let tpath = dir.join("transcript.json");
-    let transcript: Transcript = match read_json(&tpath) {
-        Ok(t) => t,
-        Err(_) => {
-            st.progress.store(0, Ordering::Relaxed);
-            set_phase(app, Phase::Processing { id: meta.id.clone(), progress: 0, step: "transcribing".into(), title: meta.title.clone() });
-            let (d, lang, progress) = (dir.clone(), meta.language.clone(), st.progress.clone());
-            let c = config::load();
-            let (vocabulary, engine) = (c.vocabulary, c.asr_final);
-            let model = format!("{} + silero vad + pyannote", asr::describe(&engine));
-            let segs = tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<_> {
-                let f = capture::files(&d);
-                transcribe::run(&capture::read(&f.mic)?, &capture::read(&f.system)?, diarize::found(&d), &lang, &vocabulary, &engine, &progress)
-            })
-            .await;
-            let mut segments = match segs {
-                Ok(Ok(s)) => s,
-                Ok(Err(e)) => return set_phase(app, Phase::Failed { message: format!("transcription failed: {e}") }),
-                Err(e) => return set_phase(app, Phase::Failed { message: format!("transcription failed: {e}") }),
-            };
-            // Names for the lines, from who the call app showed speaking.
-            let speakers = participants::name_lines(&participants::read(&dir), &mut segments);
-            let t = Transcript {
-                ended_at: meta.ended_at.clone().unwrap_or_else(now),
-                language: Some(spoken(&segments)),
-                model: Some(model),
-                segments,
-                speakers,
-            };
-            if let Err(e) = write_json(&tpath, &t) {
-                return set_phase(app, Phase::Failed { message: e.to_string() });
+fn on_event(app: &AppHandle, e: Event) {
+    match e {
+        Event::MeetingDetected { window } => on_call(app, window),
+        Event::MeetingClosed { window } => {
+            let st = app.state::<Shared>();
+            let mut inner = st.inner.lock().unwrap();
+            if let Some(Phase::Detected { call, .. }) = &inner.phase
+                && call.window_id.as_deref() == Some(window.id.as_str())
+            {
+                inner.phase = Some(Phase::Idle);
+                drop(inner);
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.set_always_on_top(false);
+                }
+                hide_prompt(app);
             }
-            t
         }
-    };
-    set_phase(app, Phase::Processing { id: meta.id.clone(), progress: 1000, step: "sending".into(), title: meta.title.clone() });
+        Event::RecordingEnded { recording_id, warning, error, .. } => {
+            let st = app.state::<Shared>();
+            let title = {
+                let mut inner = st.inner.lock().unwrap();
+                inner.recording = None;
+                let k = inner.known.entry(recording_id.clone()).or_default();
+                k.warning = warning;
+                k.title.clone()
+            };
+            show_muted(app, false);
+            match error {
+                Some(message) => {
+                    set_phase(app, Phase::Failed { message });
+                    show(app);
+                }
+                None => set_phase(app, Phase::Processing { id: recording_id, progress: 0, step: "transcribing".into(), title }),
+            }
+        }
+        Event::UploadStatus { recording_id, status, progress, error } => on_upload(app, recording_id, status, progress, error),
+        Event::MuteStatus { muted, .. } => show_muted(app, muted),
+        Event::ModelDownload { done, ready, error, total } => {
+            let st = app.state::<Shared>();
+            st.model_bytes.store(done, Ordering::Relaxed);
+            if ready {
+                st.models_ready.store(true, Ordering::Relaxed);
+                set_phase(app, resting(app, &config::load()));
+            } else if let Some(error) = error {
+                set_phase(app, Phase::Models { done: 0, total, error: Some(error) });
+            }
+        }
+        Event::PermissionStatus { permission, status } => {
+            let st = app.state::<Shared>();
+            let mut perms = st.perms.lock().unwrap();
+            if let Some(p) = perms.iter_mut().find(|p| p.permission == permission) {
+                p.status = status;
+            }
+        }
+        Event::Error { kind, message } => eprintln!("engine {kind}: {message}"),
+        Event::Shutdown { code } => eprintln!("engine stopped ({code:?})"),
+        _ => {}
+    }
+}
+
+/// A call the engine noticed: "Record this call?", unless something else is on screen.
+fn on_call(app: &AppHandle, window: Window) {
+    let st = app.state::<Shared>();
+    if !matches!(st.inner.lock().unwrap().phase, None | Some(Phase::Idle) | Some(Phase::Done { .. })) {
+        return;
+    }
     let cfg = config::load();
-    // The recording on the server first (if it never got there), then the text (the part that matters), then the
-    // audio: the whole call, and your own voice in high quality. All idempotent, so a retry resends everything.
-    let sent = async {
-        let meeting_id = register(app, &cfg, &meta).await?;
-        api::deliver(&cfg, &meta.id, &transcript).await?;
-        let d = dir.clone();
-        let (mix, voice) = tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<_> { Ok((capture::call_m4a(&d)?, capture::voice_m4a(&d)?)) }).await??;
-        api::upload_track(&cfg, &meta.id, "mix", &mix).await?;
-        if let Some(v) = voice {
-            api::upload_track(&cfg, &meta.id, "mic_hq", &v).await?;
-        }
-        // The reader's broken snapshots, when allowed: a failure here doesn't hold the recording back.
-        if cfg.share_reader_dumps {
-            for (name, bytes) in dumps::all(&dir) {
-                if let Err(e) = api::put_reader_dump(&cfg, &meta.id, &name, bytes).await {
-                    eprintln!("reader dump {name} not sent: {e}");
-                }
-            }
-        }
-        anyhow::Ok(meeting_id)
+    if cfg.on_call == "off" || !matches!(resting(app, &cfg), Phase::Idle) {
+        return;
     }
-    .await;
-    match sent {
-        Ok(meeting_id) => {
-            let _ = std::fs::write(dir.join("sent"), now());
-            if !cfg.keep_audio {
-                let f = capture::files(&dir);
-                for p in [f.mic, f.system, f.mic_hq, dir.join("call.m4a"), dir.join("voice.m4a")] {
-                    let _ = std::fs::remove_file(p);
-                }
-            }
-            refresh_pending(app);
-            notify(app, "Transcript sent", meta.title.as_deref().unwrap_or("Untitled meeting"));
-            let quiet = warning.is_none();
-            set_phase(app, Phase::Done { title: meta.title, meeting_id: Some(meeting_id), warning });
-            if quiet {
-                return;
-            }
-        }
-        Err(e) => {
-            refresh_pending(app);
-            set_phase(app, Phase::Failed { message: format!("couldn't send it ({e}). It stays on this Mac and I'll try again when the app opens.") });
-        }
-    }
-    show(app);
+    show_prompt(app);
+    let app2 = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let _ = detected(app2, Some(Call::of(&window)), true).await;
+    });
 }
 
-/// Recordings not sent yet (no `sent` marker).
-fn unsent() -> Vec<PathBuf> {
-    let Ok(rd) = std::fs::read_dir(config::recordings_dir()) else { return vec![] };
-    let mut v: Vec<PathBuf> =
-        rd.filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.join("meta.json").exists() && !p.join("sent").exists()).collect();
-    v.sort();
-    v
+/// How a recording after its call goes: transcribing, sending, sent; one waiting for a token gets one.
+fn on_upload(app: &AppHandle, id: String, status: UploadStatus, progress: Option<u32>, error: Option<String>) {
+    let st = app.state::<Shared>();
+    let (k, busy) = {
+        let inner = st.inner.lock().unwrap();
+        let busy = matches!(inner.phase, Some(Phase::Recording { .. }) | Some(Phase::Detected { .. }));
+        (inner.known.get(&id).cloned().unwrap_or_default(), busy)
+    };
+    match status {
+        UploadStatus::Waiting => {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = register(&app, &id).await {
+                    refresh_pending(&app);
+                    if !matches!(app.state::<Shared>().inner.lock().unwrap().phase, Some(Phase::Recording { .. }) | Some(Phase::Detected { .. })) {
+                        set_phase(&app, Phase::Failed { message: format!("couldn't send it ({e}). It stays on this Mac and I'll try again when the app opens.") });
+                        show(&app);
+                    }
+                }
+            });
+        }
+        UploadStatus::Transcribing | UploadStatus::Uploading if !busy => {
+            let step = if status == UploadStatus::Transcribing { "transcribing" } else { "sending" };
+            set_phase(app, Phase::Processing { id, progress: progress.unwrap_or(0), step: step.into(), title: k.title });
+        }
+        UploadStatus::Done => {
+            refresh_pending(app);
+            notify(app, "Transcript sent", k.title.as_deref().unwrap_or("Untitled meeting"));
+            if !busy {
+                let quiet = k.warning.is_none();
+                set_phase(app, Phase::Done { title: k.title, meeting_id: k.meeting_id, warning: k.warning });
+                if !quiet {
+                    show(app);
+                }
+            }
+        }
+        UploadStatus::Failed => {
+            refresh_pending(app);
+            if !busy {
+                set_phase(app, Phase::Failed { message: error.unwrap_or_else(|| "couldn't send it".into()) });
+                show(app);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn refresh_pending(app: &AppHandle) {
-    app.state::<Shared>().inner.lock().unwrap().pending = unsent().len();
+    let n = engine(app).ok().and_then(|e| e.pending().ok()).map(|p| p.len()).unwrap_or(0);
+    app.state::<Shared>().inner.lock().unwrap().pending = n;
 }
 
-/// At start-up: finish whatever an earlier run left behind (quit mid-transcription, offline, …).
+/// Recordings an earlier run left behind: the engine resumes those it can send; those without a usable token (made
+/// offline, or waiting longer than a token lives) get one here.
 async fn resume(app: AppHandle) {
-    refresh_pending(&app);
-    let cfg = config::load();
-    if !matches!(resting(&cfg), Phase::Idle) {
+    let Ok(e) = engine(&app) else { return };
+    let pending = tauri::async_runtime::spawn_blocking(move || e.pending()).await.ok().and_then(Result::ok).unwrap_or_default();
+    app.state::<Shared>().inner.lock().unwrap().pending = pending.len();
+    if !config::load().signed_in() {
         return;
     }
-    for dir in unsent() {
-        let meta: Option<Meta> = read_json(&dir.join("meta.json")).ok();
-        // A recording without an end was cut short by a crash: its audio is still usable up to where it stopped,
-        // but hound leaves the header unfinished; skip it rather than send half a file silently.
-        if meta.as_ref().map(|m| m.ended_at.is_none()).unwrap_or(true) {
-            continue;
-        }
-        process(&app, dir, None).await;
-    }
-    set_phase(&app, resting(&cfg));
-}
-
-// --- call detection --------------------------------------------------------------------------------------------
-
-fn meeting_app(id: &str) -> Option<Option<&'static str>> {
-    MEETING_APPS.iter().find(|(a, _)| *a == id).map(|(_, kind)| *kind)
-}
-
-/// Window title and platform from the Accessibility tree (needs that permission; without it we go by time only).
-fn inspect(app_id: &str) -> (Option<String>, Option<String>) {
-    for i in anlg_detect::inspect_meeting_accessibility() {
-        if i.app.id == app_id {
-            let platform = match i.platform {
-                anlg_detect::MeetingPlatform::GoogleMeet => Some("google_meet"),
-                anlg_detect::MeetingPlatform::Zoom => Some("zoom"),
-                anlg_detect::MeetingPlatform::MicrosoftTeams => Some("microsoft_teams"),
-                anlg_detect::MeetingPlatform::Webex => Some("webex"),
-                _ => None,
-            };
-            return (i.window_title, platform.map(String::from));
+    for p in pending {
+        let call = Call::of(&p.window);
+        let s = |k: &str| p.metadata.get(k).and_then(|v| v.as_str()).map(String::from);
+        let known = Known { started_at: p.started_at.clone(), call: Call { window_id: None, ..call }, meeting_id: s("meeting_id"), title: s("title"), warning: None };
+        app.state::<Shared>().inner.lock().unwrap().known.insert(p.recording_id.clone(), known);
+        if p.needs_token && p.ended_at.is_some()
+            && let Err(e) = register(&app, &p.recording_id).await
+        {
+            eprintln!("recording {} not sent yet: {e}", p.recording_id);
         }
     }
-    (None, None)
 }
 
-fn on_detect(app: &AppHandle, ev: anlg_detect::DetectEvent) {
-    match ev {
-        anlg_detect::DetectEvent::MicStarted(apps) => {
-            let st = app.state::<Shared>();
-            // The call app picked the mic up again: don't stop.
-            {
-                let inner = st.inner.lock().unwrap();
-                if let (Some(rec), Some(timer)) = (&inner.recording, &inner.stop_timer) {
-                    if apps.iter().any(|a| Some(&a.id) == rec.call.app_id.as_ref()) {
-                        timer.cancel();
-                    }
-                }
-            }
-            if !matches!(st.inner.lock().unwrap().phase, None | Some(Phase::Idle) | Some(Phase::Done { .. })) {
-                return;
-            }
-            let Some((a, kind)) = apps.iter().find_map(|a| meeting_app(&a.id).map(|k| (a.clone(), k))) else { return };
-            let cfg = config::load();
-            if cfg.on_call == "off" || !matches!(resting(&cfg), Phase::Idle) {
-                return;
-            }
-            let (title, platform) = inspect(&a.id);
-            let mut call = Call { app_id: Some(a.id.clone()), app_name: Some(a.name.clone()), app: platform.or(kind.map(String::from)), title, url: None };
-            show_prompt(app);
-            let app2 = app.clone();
-            let browser = kind.is_none();
-            tauri::async_runtime::spawn(async move {
-                // In a browser, the meeting tab has the call's whole link (and sometimes its name).
-                if browser {
-                    let id = a.id.clone();
-                    if let Ok(Some((url, tab))) = tauri::async_runtime::spawn_blocking(move || callurl::find(&id)).await {
-                        call.app = call.app.or_else(|| callurl::platform(&a.id, &url).filter(|p| !p.is_empty()));
-                        call.title = call.title.or(Some(tab));
-                        call.url = Some(url);
-                    }
-                }
-                let _ = detected(app2, Some(call), true).await;
-            });
-        }
-        anlg_detect::DetectEvent::MicStopped(apps) => {
-            let st = app.state::<Shared>().inner().clone();
-            let mut inner = st.inner.lock().unwrap();
-            if let Some(Phase::Detected { call, .. }) = &inner.phase {
-                let gone = apps.iter().any(|a| Some(&a.id) == call.app_id.as_ref());
-                if gone {
-                    inner.phase = Some(Phase::Idle);
-                    if let Some(w) = app.get_webview_window("main") {
-                        let _ = w.set_always_on_top(false);
-                    }
-                    hide_prompt(app);
-                }
-                return;
-            }
-            let Some(rec) = &inner.recording else { return };
-            if !apps.iter().any(|a| Some(&a.id) == rec.call.app_id.as_ref()) {
-                return;
-            }
-            let timer = CancellationToken::new();
-            inner.stop_timer = Some(timer.clone());
-            let stop = inner.stop.clone();
-            tauri::async_runtime::spawn(async move {
-                tokio::select! {
-                    _ = timer.cancelled() => {}
-                    _ = tokio::time::sleep(std::time::Duration::from_secs(STOP_GRACE_SECS)) => {
-                        if let Some(s) = stop { s.cancel(); }
-                    }
-                }
-            });
-        }
+/// Where recordem-desktop is: $RECORDEM_DESKTOP, or next to this app's executable (bundled as a sidecar).
+fn engine_path() -> std::path::PathBuf {
+    if let Ok(p) = std::env::var("RECORDEM_DESKTOP") {
+        return p.into();
     }
+    std::env::current_exe().unwrap_or_default().with_file_name("recordem-desktop")
+}
+
+/// Starts the engine and gives it the app's settings.
+fn start_engine(app: &AppHandle) -> Result<(), String> {
+    let h = app.clone();
+    let mut opts = recordem_desktop::Options::new(engine_path());
+    // A permission prompt waits for the person.
+    opts.timeout = std::time::Duration::from_secs(150);
+    let client = Client::start(opts, move |e| on_event(&h, e)).map_err(|e| e.to_string())?;
+    let ready = client.init(&settings(&config::load())).map_err(|e| e.to_string())?;
+    let st = app.state::<Shared>();
+    st.models_ready.store(ready.models_ready, Ordering::Relaxed);
+    st.inner.lock().unwrap().pending = ready.pending.len();
+    let _ = st.engine.set(client);
+    Ok(())
 }
 
 // --- app ----------------------------------------------------------------------------------------------------------
@@ -1044,12 +984,12 @@ pub fn run() {
                         });
                     }
                     "mute" => toggle_mute(app.clone()),
-                    "stop" => stop(app.state::<Shared>()),
+                    "stop" => stop(app.clone()),
                     "quit" => {
                         // Never drop a recording on the floor: stop it and let it finish before quitting.
                         let recording = app.state::<Shared>().inner.lock().unwrap().recording.is_some();
                         if recording {
-                            stop(app.state::<Shared>());
+                            stop(app.clone());
                             show(app);
                         } else {
                             app.exit(0);
@@ -1062,17 +1002,19 @@ pub fn run() {
                 let _ = t.set_title(Some("DEV"));
             }
 
-            // The detector lives as long as the app; it runs its own Core Audio listener thread.
-            let detector: &'static mut anlg_detect::Detector = Box::leak(Box::default());
-            let h = handle.clone();
-            detector.start(anlg_detect::new_callback(move |ev| on_detect(&h, ev)));
+            // The engine: calls, recording, transcription, sending. Without it there is nothing to do but say so.
+            if let Err(e) = start_engine(&handle) {
+                set_phase(&handle, Phase::Failed { message: format!("the recording engine didn't start: {e}") });
+                show(&handle);
+            }
 
             // Login item follows the setting (on by default), also on the very first run.
             let cfg = config::load();
             if app.autolaunch().is_enabled().unwrap_or(false) != cfg.launch_at_login {
                 apply_autostart(&handle, cfg.launch_at_login);
             }
-            if !matches!(resting(&cfg), Phase::Idle) || !unsent().is_empty() {
+            let pending = handle.state::<Shared>().inner.lock().unwrap().pending;
+            if !matches!(resting(&handle, &cfg), Phase::Idle) || pending > 0 {
                 show(&handle);
             }
             // A recordem:// link, whether it launched the app or arrived while it runs.
@@ -1097,7 +1039,6 @@ pub fn run() {
                 }
             });
             tauri::async_runtime::spawn(resume(handle));
-            tauri::async_runtime::spawn(profiles::keep_fresh());
             Ok(())
         })
         .on_window_event(|w, e| {
@@ -1110,9 +1051,4 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![status, flavor, app_icon, get_config, save_config, login, logout, download_models, lookup, start, stop, toggle_mute, dismiss, show_main, open, open_live, version, request_permission, open_permission, permission_list, finish_onboarding])
         .run(tauri::generate_context!())
         .expect("error while running the recorder");
-}
-
-/// The asr-bench tool (src/bin/asr-bench.rs): engines compared on the same audio.
-pub fn asr_bench(args: Vec<String>) -> anyhow::Result<()> {
-    bench::main(args)
 }

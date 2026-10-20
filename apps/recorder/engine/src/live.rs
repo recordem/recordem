@@ -3,7 +3,6 @@
 // It is a draft: the voices on the other side aren't told apart (diarization needs the whole call), and the pass after
 // the call (transcribe::run) replaces it. Best effort: nothing here can stop or spoil the recording.
 use crate::api::{self, LiveBatch, Participants, Segment};
-use crate::config::Config;
 use crate::participants::{Latest, LiveVoices};
 use std::sync::mpsc;
 use std::time::Duration;
@@ -105,12 +104,16 @@ pub fn transcribe(frames: mpsc::Receiver<Frame>, out: tokio::sync::mpsc::Unbound
     Ok(())
 }
 
+/// The recording's upload token, once the host has given it (at the start, or later with `setUploadToken`).
+pub type Token = std::sync::Arc<std::sync::Mutex<Option<String>>>;
+
 /// Sends the segments as they come, in batches. The API answers how many it holds, so a batch that failed (offline,
 /// the API restarting) is sent again from there and nothing is duplicated. The first batch goes out empty, right away.
 /// An answer with `stop` ("Stop recording" in the portal) stops the recording. When `segments` closes (the recording
 /// ended), what is left goes in a last batch marked `ended`, tried once. The other side's lines go out named after who
 /// the call app showed speaking (speakers.jsonl in `dir`, participants.rs), with the names when a new one appears.
-pub async fn send(cfg: Config, id: String, mut segments: tokio::sync::mpsc::UnboundedReceiver<Vec<Segment>>, stop: CancellationToken, people: Latest, dir: std::path::PathBuf) {
+/// Nothing is sent while there is no `token`; every line, named, also goes to `lines` (the host's realtime events).
+pub async fn send(api_url: String, token: Token, id: String, mut segments: tokio::sync::mpsc::UnboundedReceiver<Vec<Segment>>, stop: CancellationToken, people: Latest, dir: std::path::PathBuf, lines: impl Fn(&Segment, Option<&str>)) {
     let mut all: Vec<Segment> = vec![];
     let mut voices = LiveVoices::default();
     let mut named = 0usize; // lines given a name (or found to have none) so far
@@ -140,12 +143,24 @@ pub async fn send(cfg: Config, id: String, mut segments: tokio::sync::mpsc::Unbo
         let changed = now.as_ref().filter(|n| sent.as_ref().is_none_or(|s| Participants { t_ms: n.t_ms, ..s.clone() } != **n));
         if named < all.len() {
             new_names |= voices.label(&crate::participants::read(&dir), &mut all[named..]);
+            let names = voices.speakers();
+            for s in &all[named..] {
+                let name = s.speaker.as_ref().and_then(|l| names.iter().find(|n| &n.label == l)).map(|n| n.name.as_str());
+                lines(s, name);
+            }
             named = all.len();
         }
+        let Some(token) = token.lock().unwrap().clone() else {
+            if !open {
+                break;
+            }
+            continue;
+        };
+        let target = api::Target { api_url: api_url.clone(), token };
         let speakers = new_names.then(|| voices.speakers());
         reports.extend(std::mem::take(&mut *crate::participants::REPORTS.lock().unwrap()));
         let batch = LiveBatch { from: held, segments: &all[held..], participants: changed, reader: &reports, speakers: speakers.as_deref(), ended: !open };
-        match api::live(&cfg, &id, &batch).await {
+        match api::live(&target, &id, &batch).await {
             Ok(ack) => {
                 held = ack.n.min(all.len());
                 if changed.is_some() {

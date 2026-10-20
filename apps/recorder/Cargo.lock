@@ -4970,14 +4970,33 @@ dependencies = [
 ]
 
 [[package]]
-name = "recordem-recorder"
-version = "0.2.0"
+name = "recordem-desktop"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "recordem-desktop-engine"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "recordem-desktop",
+ "recordem-engine",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "recordem-engine"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "audio",
  "audio-actual",
  "audio-device",
- "base64 0.22.1",
  "block2",
  "chrono",
  "cidre",
@@ -4992,10 +5011,30 @@ dependencies = [
  "objc2",
  "objc2-av-foundation",
  "pyannote-local",
- "rand 0.9.4",
  "recordem-ax",
+ "recordem-desktop",
  "recordem-scrape",
  "recordem-timeline",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tcc",
+ "tokio",
+ "tokio-util",
+ "uuid",
+ "whisper-rs",
+]
+
+[[package]]
+name = "recordem-recorder"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "chrono",
+ "dirs 6.0.0",
+ "rand 0.9.4",
+ "recordem-desktop",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -5006,11 +5045,8 @@ dependencies = [
  "tauri-plugin-deep-link",
  "tauri-plugin-notification",
  "tauri-plugin-opener",
- "tcc",
  "tokio",
- "tokio-util",
  "uuid",
- "whisper-rs",
 ]
 
 [[package]]

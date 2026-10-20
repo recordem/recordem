@@ -15,7 +15,7 @@ pub fn table(bundle_id: &str, version: Option<&str>, keys: &[&str]) -> std::sync
     if let Some(t) = CACHE.lock().unwrap().get(&k) {
         return t.clone();
     }
-    let t = std::sync::Arc::new(crate::icons::app_path(bundle_id).map(|app| read(&app, keys)).unwrap_or_default());
+    let t = std::sync::Arc::new(app_path(bundle_id).map(|app| read(&app, keys)).unwrap_or_default());
     CACHE.lock().unwrap().insert(k, t.clone());
     t
 }
@@ -44,6 +44,17 @@ fn read(app: &Path, keys: &[&str]) -> Table {
         }
     }
     out
+}
+
+/// Where the app `bundle_id` is installed (Launch Services, through AppleScript; nothing is launched).
+fn app_path(bundle_id: &str) -> Option<PathBuf> {
+    if bundle_id.is_empty() || !bundle_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-') {
+        return None;
+    }
+    let script = format!("POSIX path of (path to application id \"{bundle_id}\")");
+    let out = std::process::Command::new("osascript").args(["-e", &script]).output().ok()?;
+    let app = String::from_utf8(out.stdout).ok()?.trim().trim_end_matches('/').to_string();
+    (out.status.success() && !app.is_empty()).then(|| app.into())
 }
 
 #[cfg(test)]
