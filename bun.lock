@@ -100,9 +100,13 @@
         "drizzle-kit": "0.31.11",
       },
     },
+    "packages/desktop-sdk": {
+      "name": "@recordem/desktop-sdk",
+      "version": "0.1.0",
+    },
     "packages/sdk": {
       "name": "@recordem/sdk",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "openapi-fetch": "0.17.0",
       },
@@ -323,6 +327,8 @@
     "@recordem/contract": ["@recordem/contract@workspace:packages/contract"],
 
     "@recordem/db": ["@recordem/db@workspace:packages/db"],
+
+    "@recordem/desktop-sdk": ["@recordem/desktop-sdk@workspace:packages/desktop-sdk"],
 
     "@recordem/mcp": ["@recordem/mcp@workspace:apps/mcp"],
 

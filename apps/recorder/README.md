@@ -3,6 +3,19 @@
 Menu-bar app that notices a call, records it on this Mac (no bot joins the call), transcribes it here and delivers
 the transcript, then the audio, to a Recordem server. MIT licensed.
 
+It is two parts, the same split any app embedding Recordem uses (the Desktop SDK):
+
+```
+src-tauri/        the app: window, menu bar, sign-in, "record this call?", creates each recording with an upload token
+engine/           recordem-engine: detection, capture, participants, transcription, sending (with the token only)
+desktop/          recordem-desktop: the engine as an executable, JSON lines over stdin/stdout; a sidecar of the app
+desktop-client/   the `recordem-desktop` crate: spawns the executable, typed commands and events (the app uses it)
+crates/           the participants reader (ax, scrape, timeline): a workspace of its own, used by path
+```
+
+`@recordem/desktop-sdk` (packages/desktop-sdk) is the same client for Node/Electron. `scripts/engine.sh` builds the
+executable into `src-tauri/binaries/` (dev-build.sh and release.sh run it).
+
 ```
 a meeting app or browser starts using the mic   (Anarlog detect: Core Audio listener)
   → POST /v1/meetings/context {at, app, title}   → meetings of yours now, or with the same call link
@@ -26,15 +39,15 @@ A server can offer a "Connect the recorder" link: `recordem://login?api=…&auth
 
 **Anarlog crates.** Capture, detection and diarization are Anarlog's MIT crates (`audio`, `audio-actual`, `detect`,
 `pyannote-local`) as git dependencies pinned to one commit — no fork. Their workspace pins versions a git dependency
-doesn't inherit, so `src-tauri/Cargo.lock` was seeded from theirs: when bumping `rev`, copy their `Cargo.lock` again
+doesn't inherit, so `Cargo.lock` (the workspace's, in this folder) was seeded from theirs: when bumping `rev`, copy their `Cargo.lock` again
 and rebuild. Never depend on anything under their `enterprise/` (commercial license).
 
-**Speech recognition** is an engine behind one interface (`src-tauri/src/asr.rs`), chosen per use in `config.json`:
+**Speech recognition** is an engine behind one interface (`engine/src/asr.rs`), chosen per use in `config.json`:
 `asr_live` (the draft during the call) and `asr_final` (the pass after it), each `"whisper"` (default), `"parakeet"`
 or `"parakeet:ultra"`. Parakeet runs in a helper process (`parakeet/`, Swift, FluidAudio on the Neural Engine,
 Apache-2.0) bundled next to the app; its models (~480 MB) download into `models/parakeet/` the first time. Compare
 engines on the same audio, the way the recorder runs them:
-`cargo run --release --features bench --bin asr-bench -- call.wav whisper parakeet --lang pt,en` (with
+`cargo run --release -p recordem-engine --features bench --bin asr-bench -- call.wav whisper parakeet --lang pt,en` (with
 `RECORDEM_PARAKEET=parakeet/.build/release/recordem-parakeet` outside the bundle). A 16.5 min call (Oct 2026):
 Whisper 74 s, Parakeet v3 5.6 s; 88% of the words agree, with different mistakes (Whisper cleans up and sometimes
 paraphrases, Parakeet is verbatim and slips into English).

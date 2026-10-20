@@ -2,6 +2,7 @@
 name = "recordem-desktop"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.88"
 description = "Records calls on a desktop from your app: a client of the recordem-desktop engine (Recordem Desktop SDK)"
 license = "MIT"
 repository = "https://github.com/recordem/recordem"

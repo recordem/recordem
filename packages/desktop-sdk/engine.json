@@ -1,0 +1,10 @@
+{
+  "version": "0.1.0",
+  "url": "https://github.com/recordem/recordem/releases/download/desktop-v{version}/{file}",
+  "files": {
+    "darwin-arm64": {
+      "recordem-desktop": "",
+      "recordem-parakeet": ""
+    }
+  }
+}

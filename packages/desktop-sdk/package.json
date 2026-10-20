@@ -1,0 +1,22 @@
+{
+  "name": "@recordem/desktop-sdk",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "description": "Record calls from your Electron or Node app: call detection, capture, local transcription and upload to Recordem",
+  "keywords": ["recordem", "meetings", "recording", "transcription", "electron", "desktop-sdk"],
+  "homepage": "https://github.com/recordem/recordem/tree/main/packages/desktop-sdk",
+  "repository": { "type": "git", "url": "git+https://github.com/recordem/recordem.git", "directory": "packages/desktop-sdk" },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": ["dist", "scripts/install.mjs", "engine.json", "LICENSE", "README.md"],
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "postinstall": "node scripts/install.mjs",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "prepack": "bun scripts/pack.ts prepack",
+    "postpack": "bun scripts/pack.ts postpack"
+  }
+}

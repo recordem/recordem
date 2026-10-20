@@ -11,12 +11,14 @@ apps/api/           Hono + @hono/zod-openapi: REST (/v1) and SSE (/v1/stream); v
 apps/worker/        BullMQ workers: webhook delivery; meeting notes from a language model (any OpenAI-compatible API)
 apps/web/           portal (Vite + React): calendar, meeting page, live transcript; a client of packages/sdk
 apps/mcp/           MCP server for agents (streamable HTTP, /mcp): an OAuth protected resource, a client of packages/sdk
-apps/recorder/      macOS menu-bar recorder (Tauri 2, Rust): detects calls, records, transcribes locally (see its README)
+apps/recorder/      macOS menu-bar recorder (Tauri 2, Rust): the app around recordem-desktop, the engine that detects calls,
+                    records, transcribes locally and sends with an upload token (the Desktop SDK; see its README)
 packages/contract/  zod schemas + route definitions → openapi.json
 packages/sdk/       TypeScript client: types generated from openapi.json (`bun run --filter @recordem/sdk generate`); on npm
                     as @recordem/sdk (npm pack builds dist/; the monorepo imports the source)
 packages/db/        Drizzle schema + migrations of the api database
 packages/cli/       `recordem` CLI: sign in (loopback PKCE), search, meetings, transcripts, notes; a client of packages/sdk
+packages/desktop-sdk/ `@recordem/desktop-sdk`: Node/Electron client of recordem-desktop (record calls from your app)
 skills/             agent skills (`npx skills add recordem/recordem`): how to use the CLI
 compose.yaml        Postgres and Redis for dev and self-hosting
 ```
