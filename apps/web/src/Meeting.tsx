@@ -11,6 +11,8 @@ export function MeetingPage({ id }: { id: string }) {
   const [error, setError] = useState<string | null>(null);
   const [pick, setPick] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
+  const [details, setDetails] = useState(false);
+  const closeDetails = useCallback(() => setDetails(false), []);
 
   const load = useCallback(async () => {
     const { data, error } = await api.GET("/v1/meetings/{id}", { params: { path: { id } } });
@@ -49,6 +51,7 @@ export function MeetingPage({ id }: { id: string }) {
             {(close) => (
               <>
                 <button role="menuitem" onClick={() => { close(); setRenaming(true); }}>Rename</button>
+                {rec && <button role="menuitem" onClick={() => { close(); setDetails(true); }}>Recording details</button>}
                 {meeting.recordings.length > 1 && rec && (
                   <>
                     <hr />
@@ -74,7 +77,7 @@ export function MeetingPage({ id }: { id: string }) {
           </div>
         )}
       </div>
-      {rec ? <RecordingView key={rec.id} rec={rec} onChange={load} /> : <p className="muted">No recording for this meeting yet.</p>}
+      {rec ? <RecordingView key={rec.id} rec={rec} onChange={load} details={details} onCloseDetails={closeDetails} /> : <p className="muted">No recording for this meeting yet.</p>}
     </Frame>
   );
 }
@@ -144,7 +147,9 @@ function Frame({ children }: { children: React.ReactNode }) {
   );
 }
 
-function RecordingView({ rec, onChange }: { rec: Recording; onChange: () => void }) {
+function RecordingView({ rec, onChange, details, onCloseDetails }: {
+  rec: Recording; onChange: () => void; details: boolean; onCloseDetails: () => void;
+}) {
   const [t, setT] = useState<Transcript | null>(null);
   const [missing, setMissing] = useState(false);
   const [notes, setNotes] = useState<Notes | null>(null);
@@ -240,7 +245,8 @@ function RecordingView({ rec, onChange }: { rec: Recording; onChange: () => void
         </div>
       )}
       {notes && <NotesView n={notes} />}
-      <Facts rec={rec} t={t} notes={notes} />
+      <Participants rec={rec} t={t} />
+      {details && <Details rec={rec} t={t} notes={notes} onClose={onCloseDetails} />}
       {missing && !live && <p className="muted">No transcript for this recording.</p>}
       <ol className="transcript">
         {segs.map((s, i) => {
@@ -300,8 +306,8 @@ function NamePicker({ who, named, people, taken, onPick }: {
   );
 }
 
-/** Who was there and how long each spoke, and, folded, how the recording was made. */
-function Facts({ rec, t, notes }: { rec: Recording; t: Transcript | null; notes: Notes | null }) {
+/** Who was there and how long each spoke. */
+function Participants({ rec, t }: { rec: Recording; t: Transcript | null }) {
   const segs = t?.segments ?? [];
   const names = t?.speakers ?? [];
   const me = names.find((n) => n.label === "mic")?.name;
@@ -312,6 +318,28 @@ function Facts({ rec, t, notes }: { rec: Recording; t: Transcript | null; notes:
   }
   // Everyone listed, the ones who spoke most first; then voices nobody could be named for.
   const people = [...new Set([...rec.attendees, ...talk.keys()])].sort((a, b) => (talk.get(b) ?? 0) - (talk.get(a) ?? 0));
+  if (people.length === 0) return null;
+  return (
+    <section className="facts">
+      <h3>Participants</h3>
+      <ul className="people">
+        {people.map((p) => (
+          <li key={p} className={talk.has(p) ? undefined : "silent"}>
+            <span>{p}{p === me && <span className="muted"> (you)</span>}</span>
+            <span className="muted small">{talk.has(p) ? clock(talk.get(p)!) : "didn't speak"}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** How the recording was made, in a dialog the meeting's menu opens. */
+function Details({ rec, t, notes, onClose }: { rec: Recording; t: Transcript | null; notes: Notes | null; onClose: () => void }) {
+  const box = useRef<HTMLDialogElement>(null);
+  useEffect(() => { box.current?.showModal(); }, []);
+  const segs = t?.segments ?? [];
+  const names = t?.speakers ?? [];
   const languages = [...new Set(segs.map((s) => s.language).filter(Boolean))];
   const facts: [string, string | null | undefined][] = [
     ["Recorded", [time(rec.started_at), rec.ended_at && time(rec.ended_at)].filter(Boolean).join(" – ")],
@@ -320,25 +348,12 @@ function Facts({ rec, t, notes }: { rec: Recording; t: Transcript | null; notes:
     ["Voices named", names.filter((n) => n.label !== "mic").map((n) => `${n.name} (${n.source}${n.confidence != null ? ` ${Math.round(n.confidence * 100)}%` : ""})`).join(", ") || null],
     ["Notes", notes && [notes.model, notes.language].filter(Boolean).join(" · ")],
   ];
-  if (people.length === 0 && !t) return null;
   return (
-    <section className="facts">
-      <h3>People</h3>
-      {people.length > 0 && (
-        <ul className="people">
-          {people.map((p) => (
-            <li key={p} className={talk.has(p) ? undefined : "silent"}>
-              <span>{p}{p === me && <span className="muted"> (you)</span>}</span>
-              <span className="muted small">{talk.has(p) ? clock(talk.get(p)!) : "didn't speak"}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-      <details>
-        <summary className="muted small">Recording details</summary>
-        <dl>{facts.filter(([, v]) => v).map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
-      </details>
-    </section>
+    <dialog ref={box} className="details" onClose={onClose} onClick={(e) => { if (e.target === box.current) box.current.close(); }}>
+      <h3>Recording details</h3>
+      <dl>{facts.filter(([, v]) => v).map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
+      <button className="ghost small" onClick={() => box.current?.close()}>Close</button>
+    </dialog>
   );
 }
 
