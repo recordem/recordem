@@ -10,3 +10,4 @@ data/
 .research/
 # a private repository of its own
 tests/harness/
+.package.monorepo.json

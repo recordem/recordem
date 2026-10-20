@@ -1,14 +1,22 @@
 {
   "name": "@recordem/sdk",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "license": "MIT",
+  "description": "TypeScript client of the Recordem API: meetings, recordings, transcripts, notes, search, webhooks",
+  "keywords": ["recordem", "meetings", "transcription", "meeting-notes", "openapi"],
+  "homepage": "https://github.com/recordem/recordem/tree/main/packages/sdk",
+  "repository": { "type": "git", "url": "git+https://github.com/recordem/recordem.git", "directory": "packages/sdk" },
   "exports": {
     ".": "./src/index.ts"
   },
+  "files": ["dist", "LICENSE", "README.md"],
+  "engines": { "node": ">=18" },
   "scripts": {
     "generate": "bun --filter @recordem/contract openapi && openapi-typescript ../contract/openapi.json -o src/schema.d.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepack": "bun scripts/pack.ts prepack",
+    "postpack": "bun scripts/pack.ts postpack"
   },
   "dependencies": {
     "openapi-fetch": "0.17.0"

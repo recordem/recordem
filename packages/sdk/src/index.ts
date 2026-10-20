@@ -16,19 +16,26 @@ export type Participants = Schemas["Participants"];
 export type StreamEvent = Schemas["StreamEvent"];
 export type Notes = Schemas["Notes"];
 export type SearchHit = Schemas["SearchHit"];
+export type CreatedRecording = Schemas["CreatedRecording"];
+export type Upload = Schemas["Upload"];
+export type ApiKey = Schemas["ApiKey"];
 export { clock, noNotes, notesText, speaker, transcriptText } from "./text";
+export { clientCredentials, verifyWebhook, WebhookError } from "./backend";
 
 export type Options = {
   baseUrl: string;
-  /** Returns a valid access token; called before every request (refresh there). */
-  token: () => Promise<string> | string;
+  /** An API key (`rk_live_…`), or a function returning a valid access token, called before every request (refresh
+   * there; `clientCredentials()` makes one). */
+  token: string | (() => Promise<string> | string);
   fetch?: typeof fetch;
 };
 
 export function createClient(opts: Options) {
+  const token = typeof opts.token === "string" ? () => opts.token as string : opts.token;
+  const o = { ...opts, token };
   const client = createFetchClient<paths>({ baseUrl: opts.baseUrl, fetch: opts.fetch });
-  client.use({ async onRequest({ request }) { request.headers.set("authorization", `Bearer ${await opts.token()}`); return request; } });
-  return Object.assign(client, { stream: (o: StreamOptions) => stream(opts, o) });
+  client.use({ async onRequest({ request }) { request.headers.set("authorization", `Bearer ${await token()}`); return request; } });
+  return Object.assign(client, { stream: (s: StreamOptions) => stream(o, s) });
 }
 export type Client = ReturnType<typeof createClient>;
 
@@ -41,7 +48,7 @@ export type StreamOptions = {
 };
 
 /** Follows GET /v1/stream (SSE over fetch, so the token goes in a header), reconnecting with backoff until aborted. */
-async function stream(opts: Options, o: StreamOptions) {
+async function stream(opts: Options & { token: () => Promise<string> | string }, o: StreamOptions) {
   const q = o.recordingId ? `?recording_id=${o.recordingId}` : "";
   for (let attempt = 0; !o.signal?.aborted; attempt++) {
     try {
