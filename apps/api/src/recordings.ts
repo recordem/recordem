@@ -3,7 +3,7 @@
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import { routes } from "@recordem/contract";
 import { meetings, notes, recordings, tracks, transcripts, type Db, type Segment, type SpeakerName } from "@recordem/db";
-import { and, asc, eq, inArray, lte, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import { HTTPException } from "hono/http-exception";
 import { streamSSE } from "hono/streaming";
 import type { Actor, Env } from "./auth";
@@ -11,7 +11,7 @@ import { callKey } from "./callkey";
 import { listen, publish } from "./events";
 import { publicOrigin, storage } from "./storage";
 import { uploadToken } from "./upload";
-import { meetingView, notesView, recordingView, trackView, transcriptView } from "./views";
+import { meetingView, notesView, recordingRefs, recordingView, trackView, transcriptView } from "./views";
 
 const notFound = (what: string) => new HTTPException(404, { res: Response.json({ error: "not_found", message: `${what} not found` }, { status: 404 }) });
 const badRequest = (message: string) => new HTTPException(400, { res: Response.json({ error: "bad_request", message }, { status: 400 }) });
@@ -26,6 +26,19 @@ export function mount(app: OpenAPIHono<Env>, db: Db) {
     if (!r) throw notFound("recording");
     if (write && r.owner !== a.subject) throw forbidden("only who recorded it can write to this recording");
     return r;
+  }
+  /** recording.started, the first time the recorder sends anything for it (a live batch, or straight the transcript). */
+  async function started(r: typeof recordings.$inferSelect, hadTranscript: boolean) {
+    if (!hadTranscript) await publish(r.workspaceId, { type: "recording.started", meeting_id: r.meetingId, recording_id: r.id, data: recordingRefs(r) });
+  }
+  /** recording.uploaded, once: when the final transcript and the mix track are both in, whichever came last. */
+  async function uploaded(id: string) {
+    const [done] = await db.update(recordings).set({ uploadedAt: new Date() }).where(and(
+      eq(recordings.id, id), isNull(recordings.uploadedAt),
+      sql`exists (select 1 from ${transcripts} where ${transcripts.recordingId} = ${id} and ${transcripts.status} = 'final')`,
+      sql`exists (select 1 from ${tracks} where ${tracks.recordingId} = ${id} and ${tracks.kind} = 'mix')`,
+    )).returning();
+    if (done) await publish(done.workspaceId, { type: "recording.uploaded", meeting_id: done.meetingId, recording_id: done.id, data: recordingRefs(done) });
   }
   async function full(r: typeof recordings.$inferSelect) {
     const [ts, [t]] = await Promise.all([
@@ -104,7 +117,7 @@ export function mount(app: OpenAPIHono<Env>, db: Db) {
     }
     const [r] = await db.insert(recordings).values({
       id: b.id, workspaceId: a.workspace, meetingId, owner: a.subject, client: a.client, startedAt: new Date(b.started_at),
-      ref: b.ref ?? null, metadata: b.metadata ?? {}, config: b.config ?? null,
+      ref: b.ref ?? null, metadata: b.metadata ?? {}, config: b.config ?? null, user: b.user ?? null,
     }).returning();
     await publish(a.workspace, { type: "recording.created", meeting_id: meetingId, recording_id: r.id, data: {} });
     return c.json(await created(a, r, b.upload), 200);
@@ -189,6 +202,12 @@ export function mount(app: OpenAPIHono<Env>, db: Db) {
     const stop = !!r.stopRequestedAt;
     const [t] = await db.select().from(transcripts).where(eq(transcripts.recordingId, r.id));
     if (t?.status === "final") return c.json({ n: b.from + b.segments.length, stop: false }, 200);
+    // The first batch: an empty live transcript marks the recording started, before anything else it brings.
+    if (!t) {
+      const [made] = await db.insert(transcripts).values({ recordingId: r.id, workspaceId: a.workspace, status: "live", segments: [] })
+        .onConflictDoNothing().returning({ id: transcripts.recordingId });
+      if (made) await started(r, false);
+    }
     const ev = { meeting_id: r.meetingId, recording_id: r.id };
     // A reader profile that stopped matching: kept on the recording (the last 200) and logged, to fix the profile.
     if (b.reader?.length) {
@@ -236,20 +255,22 @@ export function mount(app: OpenAPIHono<Env>, db: Db) {
     const segments = [...b.segments].sort((x, y) => x.start_ms - y.start_ms);
     // A name someone set by hand wins over what the recorder found (a retry, or the same call delivered again). Only
     // nameSpeaker sets one: the recorder can't claim `user`. Locked, so a rename in between isn't overwritten.
-    const t = await db.transaction(async (tx) => {
+    const { row: t, had } = await db.transaction(async (tx) => {
       const [prev] = await tx.select({ speakers: transcripts.speakers }).from(transcripts).where(eq(transcripts.recordingId, r.id)).for("update");
       const byHand = (prev?.speakers ?? []).filter((s) => s.source === "user");
       const found = (b.speakers ?? []).filter((s) => s.source !== "user" && !byHand.some((u) => u.label === s.label));
       const values = { status: "final" as const, language: b.language ?? null, model: b.model ?? null, segments, speakers: [...byHand, ...found], updatedAt: new Date() };
       const [row] = await tx.insert(transcripts).values({ recordingId: r.id, workspaceId: a.workspace, ...values })
         .onConflictDoUpdate({ target: transcripts.recordingId, set: values }).returning();
-      return row;
+      return { row, had: !!prev };
     });
+    await started(r, had);
     const endedAt = new Date(b.ended_at);
     await db.update(recordings).set({ endedAt }).where(eq(recordings.id, r.id));
     await db.update(meetings).set({ endsAt: sql`greatest(${meetings.endsAt}, ${endedAt.toISOString()}::timestamptz)` })
       .where(eq(meetings.id, r.meetingId));
     await publish(a.workspace, { type: "transcript.final", meeting_id: r.meetingId, recording_id: r.id, data: {} });
+    await uploaded(r.id);
     return c.json(transcriptView(t), 200);
   });
 
@@ -301,7 +322,20 @@ export function mount(app: OpenAPIHono<Env>, db: Db) {
     const [t] = await db.insert(tracks).values({ recordingId: r.id, kind, workspaceId: a.workspace, ...values })
       .onConflictDoUpdate({ target: [tracks.recordingId, tracks.kind], set: values }).returning();
     await publish(a.workspace, { type: "track.ready", meeting_id: r.meetingId, recording_id: r.id, data: trackView(t) });
+    await uploaded(r.id);
     return c.json(trackView(t), 200);
+  });
+
+  // The recorder (a Desktop SDK app) gave up: kept, and told to webhooks, unless it got through after all.
+  app.openapi(routes.reportFailure, async (c) => {
+    const a = c.get("actor");
+    const r = await recording(a, c.req.valid("param").id, true);
+    if (r.uploadedAt) return c.json(await full(r), 200);
+    const b = c.req.valid("json");
+    const failure = { at: new Date().toISOString(), reason: b.reason, message: b.message ?? null };
+    const [u] = await db.update(recordings).set({ failure }).where(eq(recordings.id, r.id)).returning();
+    await publish(a.workspace, { type: "recording.failed", meeting_id: u.meetingId, recording_id: u.id, data: { ...recordingRefs(u), reason: failure.reason, message: failure.message } });
+    return c.json(await full(u), 200);
   });
 
   // A reader's last good and broken snapshots, when the person allows sending them: kept next to the audio and listed

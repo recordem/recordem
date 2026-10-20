@@ -7,6 +7,7 @@ import { cors } from "hono/cors";
 import { AUTH_URL, auth, pool } from "./auth";
 import { ensureFirstParty } from "./first-party";
 import { INTERNAL_PORT, internal } from "./internal";
+import { ensureMachineTables } from "./machine";
 import { page } from "./page";
 
 const app = new Hono();
@@ -97,6 +98,7 @@ app.post("/consent", async (c) => {
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]!);
 
+await ensureMachineTables();
 await ensureFirstParty(pool, { id: "recordem-web", name: "Recordem", type: "web", redirectUris: ORIGINS.map((o) => `${o}/callback`) });
 await ensureFirstParty(pool, { id: "recordem-recorder", name: "Recordem recorder", type: "native", redirectUris: ["recordem://oauth", "recordem-dev://oauth"] });
 

@@ -33,6 +33,9 @@ export const recordings = pgTable("recordings", {
   metadata: jsonb("metadata").$type<Record<string, string>>().notNull().default({}),
   config: jsonb("config").$type<RecordingConfig>(),                           // what the creator asked to capture
   reader: jsonb("reader").$type<ReaderReport[]>().notNull().default([]),      // reader profile issues the recorder hit
+  user: text("for_user"),                                                     // who recorded it, in the creator's terms (a backend's user)
+  uploadedAt: timestamp("uploaded_at", { withTimezone: true }),               // final transcript and mix track both in
+  failure: jsonb("failure").$type<{ at: string; reason: string; message: string | null }>(),   // the recorder gave up
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index("recordings_meeting").on(t.meetingId), index("recordings_workspace_ref").on(t.workspaceId, t.ref)]);
 

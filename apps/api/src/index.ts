@@ -6,6 +6,7 @@ import { and, desc, eq, gte, lt, or } from "drizzle-orm";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import { authenticate, requireScopes, type Env } from "./auth";
+import { mountCredentials } from "./credentials";
 import { serveProfiles } from "./profiles";
 import { mount } from "./recordings";
 import { mountSearch } from "./search";
@@ -39,7 +40,7 @@ for (const r of Object.values(routes).filter((r) => !("x-public" in r))) app.on(
 
 app.openapi(routes.getMe, (c) => {
   const a = c.get("actor");
-  return c.json({ subject: a.subject, workspace: a.workspace, scopes: [...a.scopes], client: a.client }, 200);
+  return c.json({ subject: a.subject, workspace: a.workspace, scopes: [...a.scopes], client: a.client, machine: a.machine }, 200);
 });
 
 // Cursor: "<starts_at ISO>|<id>" of the last item, matching the (workspace, starts_at desc, id desc) index.
@@ -64,6 +65,7 @@ app.openapi(routes.listMeetings, async (c) => {
 mount(app, db);
 mountSearch(app, db);
 mountWebhooks(app, db);
+mountCredentials(app);
 
 app.onError((e, c) => (e instanceof HTTPException ? e.getResponse() : (console.error(e), c.json({ error: "server_error", message: "unexpected error" }, 500))));
 

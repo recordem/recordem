@@ -219,7 +219,9 @@ r = await fetch(`${API}/v1/recordings/${sdkRec}/reader-dumps/5000-bad.json.gz`, 
 step("a reader dump is kept", r.status === 204);
 r = await fetch(`${API}/v1/recordings/${sdkRec}/reader-dumps/../../x`, { method: "PUT", headers: { ...up, "content-type": "application/gzip" }, body: dump });
 step("a dump name is only <t_ms>-good|bad.json.gz", r.status === 400 || r.status === 404);
-step("upload token reads nothing", (await fetch(`${API}/v1/recordings/${sdkRec}`, { headers: up })).status === 403);
+step("upload token reads its own recording's state", (await fetch(`${API}/v1/recordings/${sdkRec}`, { headers: up })).ok);
+step("upload token reads no transcript", (await fetch(`${API}/v1/recordings/${sdkRec}/transcript`, { headers: up })).status === 403);
+step("upload token lists no meetings", (await fetch(`${API}/v1/meetings`, { headers: up })).status === 403);
 const otherRec = crypto.randomUUID();
 await call("POST", "/v1/recordings", { id: otherRec, started_at: new Date().toISOString() });
 step("upload token sends no other recording", (await fetch(`${API}/v1/recordings/${otherRec}/live`, { method: "POST", headers: up, body: JSON.stringify({ from: 0, segments: [] }) })).status === 403);

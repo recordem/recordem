@@ -28,7 +28,8 @@
               "audio:read": "Download audio",
               "calendars:read": "Read connected calendars",
               "claims:write": "Claim meetings for an integration",
-              "webhooks:manage": "Manage webhook endpoints"
+              "webhooks:manage": "Manage webhook endpoints",
+              "credentials:manage": "Create and revoke the workspace's API keys and machine clients (admins only)"
             }
           },
           "clientCredentials": {
@@ -40,7 +41,8 @@
               "audio:read": "Download audio",
               "calendars:read": "Read connected calendars",
               "claims:write": "Claim meetings for an integration",
-              "webhooks:manage": "Manage webhook endpoints"
+              "webhooks:manage": "Manage webhook endpoints",
+              "credentials:manage": "Create and revoke the workspace's API keys and machine clients (admins only)"
             }
           }
         }
@@ -292,6 +294,221 @@
           "source"
         ]
       },
+      "CreatedApiKey": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ApiKey"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string",
+                "description": "Shown once. Send it as `Authorization: Bearer rk_live_…`"
+              }
+            },
+            "required": [
+              "key"
+            ]
+          }
+        ]
+      },
+      "ApiKey": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "prefix": {
+            "type": "string",
+            "description": "The key's first characters, to tell keys apart",
+            "example": "rk_live_3fQa"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "meetings:read",
+                "meetings:write",
+                "transcripts:read",
+                "audio:read",
+                "calendars:read",
+                "claims:write",
+                "webhooks:manage"
+              ]
+            },
+            "minItems": 1,
+            "description": "What it may do; a machine credential never manages credentials"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_used_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "revoked_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "prefix",
+          "scopes",
+          "created_by",
+          "created_at",
+          "last_used_at",
+          "revoked_at"
+        ]
+      },
+      "CreateApiKey": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "meetings:read",
+                "meetings:write",
+                "transcripts:read",
+                "audio:read",
+                "calendars:read",
+                "claims:write",
+                "webhooks:manage"
+              ]
+            },
+            "minItems": 1,
+            "description": "What it may do; a machine credential never manages credentials"
+          }
+        },
+        "required": [
+          "name",
+          "scopes"
+        ]
+      },
+      "CreatedMachineClient": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MachineClient"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "client_secret": {
+                "type": "string",
+                "description": "Shown once"
+              },
+              "token_endpoint": {
+                "type": "string",
+                "format": "uri",
+                "description": "POST grant_type=client_credentials with client_id, client_secret and resource=<the API's URL>"
+              }
+            },
+            "required": [
+              "client_secret",
+              "token_endpoint"
+            ]
+          }
+        ]
+      },
+      "MachineClient": {
+        "type": "object",
+        "properties": {
+          "client_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "meetings:read",
+                "meetings:write",
+                "transcripts:read",
+                "audio:read",
+                "calendars:read",
+                "claims:write",
+                "webhooks:manage"
+              ]
+            },
+            "minItems": 1,
+            "description": "What it may do; a machine credential never manages credentials"
+          },
+          "created_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "client_id",
+          "name",
+          "scopes",
+          "created_by",
+          "created_at"
+        ]
+      },
+      "CreateMachineClient": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "meetings:read",
+                "meetings:write",
+                "transcripts:read",
+                "audio:read",
+                "calendars:read",
+                "claims:write",
+                "webhooks:manage"
+              ]
+            },
+            "minItems": 1,
+            "description": "What it may do; a machine credential never manages credentials"
+          }
+        },
+        "required": [
+          "name",
+          "scopes"
+        ]
+      },
       "CreatedRecording": {
         "allOf": [
           {
@@ -455,6 +672,48 @@
           },
           "config": {
             "$ref": "#/components/schemas/RecordingConfig"
+          },
+          "user": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Who recorded it, as the creator named them (CreateRecording `user`)"
+          },
+          "uploaded_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the final transcript and the mix track were both in (event recording.uploaded)"
+          },
+          "failed": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "message": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "at",
+              "reason",
+              "message"
+            ],
+            "description": "The recorder gave up on it (event recording.failed)"
           }
         },
         "required": [
@@ -531,6 +790,16 @@
           "upload": {
             "type": "boolean",
             "description": "Also return an upload token: for a backend that hands the recording to a desktop app (the Desktop SDK), which then sends it with that token only"
+          },
+          "user": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Who is recording, in the caller's terms (an email, the caller's own user id): for a backend that records on behalf of its users",
+            "example": "ana@acme.com"
           }
         },
         "required": [
@@ -576,7 +845,10 @@
               "type": "string",
               "enum": [
                 "recording.created",
+                "recording.started",
                 "recording.ended",
+                "recording.uploaded",
+                "recording.failed",
                 "recording.stop_requested",
                 "recording.deleted",
                 "meeting.deleted",
@@ -627,7 +899,10 @@
               "type": "string",
               "enum": [
                 "recording.created",
+                "recording.started",
                 "recording.ended",
+                "recording.uploaded",
+                "recording.failed",
                 "recording.stop_requested",
                 "recording.deleted",
                 "meeting.deleted",
@@ -671,13 +946,18 @@
               "null"
             ],
             "description": "The OAuth client that obtained the token"
+          },
+          "machine": {
+            "type": "boolean",
+            "description": "An API key or a client_credentials client: a backend, not a person"
           }
         },
         "required": [
           "subject",
           "workspace",
           "scopes",
-          "client"
+          "client",
+          "machine"
         ]
       },
       "MeetingDetail": {
@@ -1084,6 +1364,33 @@
           "profiles"
         ]
       },
+      "ReportFailure": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "enum": [
+              "permission_denied",
+              "capture_failed",
+              "transcription_failed",
+              "upload_failed",
+              "other"
+            ],
+            "description": "What stopped it"
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 2000,
+            "description": "Detail, for whoever looks into it"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
       "SearchHit": {
         "type": "object",
         "properties": {
@@ -1229,7 +1536,10 @@
             "type": "string",
             "enum": [
               "recording.created",
+              "recording.started",
               "recording.ended",
+              "recording.uploaded",
+              "recording.failed",
               "recording.stop_requested",
               "recording.deleted",
               "meeting.deleted",
@@ -1260,7 +1570,7 @@
           "data": {
             "type": "object",
             "additionalProperties": {},
-            "description": "transcript.live: {from, segments}; transcript.speakers: {speakers}; participants.updated: Participants; track.ready: Track; others: {}"
+            "description": "transcript.live: {from, segments}; transcript.speakers: {speakers}; participants.updated: Participants; track.ready: Track; recording.started, recording.uploaded: {ref, metadata, user}; recording.failed: {ref, metadata, user, reason, message}; others: {}"
           }
         },
         "required": [
@@ -1362,6 +1672,254 @@
           },
           "404": {
             "description": "Not found in this workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/api-keys": {
+      "post": {
+        "operationId": "createApiKey",
+        "tags": [
+          "credentials"
+        ],
+        "summary": "Create an API key",
+        "description": "A long-lived Bearer token for a backend, in this workspace, with these scopes. The key is shown once.",
+        "security": [
+          {
+            "oauth2": [
+              "credentials:manage"
+            ]
+          }
+        ],
+        "x-scopes": [
+          "credentials:manage"
+        ],
+        "x-upload": false,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateApiKey"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The key, shown once",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedApiKey"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token lacks credentials:manage, or isn't a person who is an owner or admin of the workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "listApiKeys",
+        "tags": [
+          "credentials"
+        ],
+        "summary": "The workspace's API keys",
+        "security": [
+          {
+            "oauth2": [
+              "credentials:manage"
+            ]
+          }
+        ],
+        "x-scopes": [
+          "credentials:manage"
+        ],
+        "x-upload": false,
+        "responses": {
+          "200": {
+            "description": "Keys, newest first, revoked ones included",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ApiKey"
+                      }
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token lacks credentials:manage, or isn't a person who is an owner or admin of the workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/machine-clients": {
+      "post": {
+        "operationId": "createMachineClient",
+        "tags": [
+          "credentials"
+        ],
+        "summary": "Create an OAuth client_credentials client",
+        "description": "For a backend that prefers short-lived tokens: it trades its id and secret for a 1 h access token at the token endpoint. The secret is shown once.",
+        "security": [
+          {
+            "oauth2": [
+              "credentials:manage"
+            ]
+          }
+        ],
+        "x-scopes": [
+          "credentials:manage"
+        ],
+        "x-upload": false,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateMachineClient"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The client, with its secret shown once",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedMachineClient"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token lacks credentials:manage, or isn't a person who is an owner or admin of the workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "listMachineClients",
+        "tags": [
+          "credentials"
+        ],
+        "summary": "The workspace's OAuth client_credentials clients",
+        "security": [
+          {
+            "oauth2": [
+              "credentials:manage"
+            ]
+          }
+        ],
+        "x-scopes": [
+          "credentials:manage"
+        ],
+        "x-upload": false,
+        "responses": {
+          "200": {
+            "description": "Clients, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/MachineClient"
+                      }
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token lacks credentials:manage, or isn't a person who is an owner or admin of the workspace",
             "content": {
               "application/json": {
                 "schema": {
@@ -1559,6 +2117,72 @@
           },
           "403": {
             "description": "Token lacks a required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/machine-clients/{id}": {
+      "delete": {
+        "operationId": "deleteMachineClient",
+        "tags": [
+          "credentials"
+        ],
+        "summary": "Delete a client_credentials client",
+        "description": "It gets no new tokens; ones already issued last until they expire (1 h).",
+        "security": [
+          {
+            "oauth2": [
+              "credentials:manage"
+            ]
+          }
+        ],
+        "x-scopes": [
+          "credentials:manage"
+        ],
+        "x-upload": false,
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "401": {
+            "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token lacks credentials:manage, or isn't a person who is an owner or admin of the workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found in this workspace",
             "content": {
               "application/json": {
                 "schema": {
@@ -1861,6 +2485,7 @@
           "recordings"
         ],
         "summary": "A recording",
+        "description": "An upload token reads its own recording.",
         "security": [
           {
             "oauth2": [
@@ -1871,7 +2496,7 @@
         "x-scopes": [
           "meetings:read"
         ],
-        "x-upload": false,
+        "x-upload": true,
         "parameters": [
           {
             "schema": {
@@ -2000,13 +2625,14 @@
           "identity"
         ],
         "summary": "Who the token is",
+        "description": "An upload token may ask too, to check it works.",
         "security": [
           {
             "oauth2": []
           }
         ],
         "x-scopes": [],
-        "x-upload": false,
+        "x-upload": true,
         "responses": {
           "200": {
             "description": "The token's subject, workspace and scopes",
@@ -3058,6 +3684,156 @@
         }
       }
     },
+    "/v1/recordings/{id}/failure": {
+      "post": {
+        "operationId": "reportFailure",
+        "tags": [
+          "recorder"
+        ],
+        "summary": "The recorder gave up on a recording",
+        "description": "Kept on the recording and sent as recording.failed. Reported again, the last one wins; once the recording was uploaded, ignored.",
+        "security": [
+          {
+            "oauth2": [
+              "meetings:write"
+            ]
+          }
+        ],
+        "x-scopes": [
+          "meetings:write"
+        ],
+        "x-upload": true,
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportFailure"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The recording",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Recording"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token lacks a required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found in this workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/api-keys/{id}": {
+      "delete": {
+        "operationId": "revokeApiKey",
+        "tags": [
+          "credentials"
+        ],
+        "summary": "Revoke an API key",
+        "description": "Refused everywhere within a minute (the api keeps a verified key for up to 60 s).",
+        "security": [
+          {
+            "oauth2": [
+              "credentials:manage"
+            ]
+          }
+        ],
+        "x-scopes": [
+          "credentials:manage"
+        ],
+        "x-upload": false,
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Revoked"
+          },
+          "401": {
+            "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token lacks credentials:manage, or isn't a person who is an owner or admin of the workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found in this workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/search": {
       "get": {
         "operationId": "search",
@@ -3208,7 +3984,7 @@
           "recordings"
         ],
         "summary": "Ask the recorder to stop",
-        "description": "The recorder reads it in its next live batch answer (`stop: true`).",
+        "description": "The recorder reads it in its next live batch answer (`stop: true`). An upload token may ask it for its own recording.",
         "security": [
           {
             "oauth2": [
@@ -3219,7 +3995,7 @@
         "x-scopes": [
           "meetings:write"
         ],
-        "x-upload": false,
+        "x-upload": true,
         "parameters": [
           {
             "schema": {

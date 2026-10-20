@@ -24,6 +24,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/api-keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The workspace's API keys */
+        get: operations["listApiKeys"];
+        put?: never;
+        /**
+         * Create an API key
+         * @description A long-lived Bearer token for a backend, in this workspace, with these scopes. The key is shown once.
+         */
+        post: operations["createApiKey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/machine-clients": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The workspace's OAuth client_credentials clients */
+        get: operations["listMachineClients"];
+        put?: never;
+        /**
+         * Create an OAuth client_credentials client
+         * @description For a backend that prefers short-lived tokens: it trades its id and secret for a 1 h access token at the token endpoint. The secret is shown once.
+         */
+        post: operations["createMachineClient"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/recordings": {
         parameters: {
             query?: never;
@@ -65,6 +107,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/machine-clients/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a client_credentials client
+         * @description It gets no new tokens; ones already issued last until they expire (1 h).
+         */
+        delete: operations["deleteMachineClient"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/meetings/{id}": {
         parameters: {
             query?: never;
@@ -94,7 +156,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** A recording */
+        /**
+         * A recording
+         * @description An upload token reads its own recording.
+         */
         get: operations["getRecording"];
         put?: never;
         post?: never;
@@ -132,7 +197,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Who the token is */
+        /**
+         * Who the token is
+         * @description An upload token may ask too, to check it works.
+         */
         get: operations["getMe"];
         put?: never;
         post?: never;
@@ -344,6 +412,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/recordings/{id}/failure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * The recorder gave up on a recording
+         * @description Kept on the recording and sent as recording.failed. Reported again, the last one wins; once the recording was uploaded, ignored.
+         */
+        post: operations["reportFailure"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/api-keys/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke an API key
+         * @description Refused everywhere within a minute (the api keeps a verified key for up to 60 s).
+         */
+        delete: operations["revokeApiKey"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/search": {
         parameters: {
             query?: never;
@@ -375,7 +483,7 @@ export interface paths {
         put?: never;
         /**
          * Ask the recorder to stop
-         * @description The recorder reads it in its next live batch answer (`stop: true`).
+         * @description The recorder reads it in its next live batch answer (`stop: true`). An upload token may ask it for its own recording.
          */
         post: operations["stopRecording"];
         delete?: never;
@@ -482,6 +590,56 @@ export interface components {
             /** @description How sure the source is, 0–1; none for user */
             confidence?: number | null;
         };
+        CreatedApiKey: components["schemas"]["ApiKey"] & {
+            /** @description Shown once. Send it as `Authorization: Bearer rk_live_…` */
+            key: string;
+        };
+        ApiKey: {
+            id: string;
+            name: string;
+            /**
+             * @description The key's first characters, to tell keys apart
+             * @example rk_live_3fQa
+             */
+            prefix: string;
+            /** @description What it may do; a machine credential never manages credentials */
+            scopes: ("meetings:read" | "meetings:write" | "transcripts:read" | "audio:read" | "calendars:read" | "claims:write" | "webhooks:manage")[];
+            created_by: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            last_used_at: string | null;
+            /** Format: date-time */
+            revoked_at: string | null;
+        };
+        CreateApiKey: {
+            name: string;
+            /** @description What it may do; a machine credential never manages credentials */
+            scopes: ("meetings:read" | "meetings:write" | "transcripts:read" | "audio:read" | "calendars:read" | "claims:write" | "webhooks:manage")[];
+        };
+        CreatedMachineClient: components["schemas"]["MachineClient"] & {
+            /** @description Shown once */
+            client_secret: string;
+            /**
+             * Format: uri
+             * @description POST grant_type=client_credentials with client_id, client_secret and resource=<the API's URL>
+             */
+            token_endpoint: string;
+        };
+        MachineClient: {
+            client_id: string;
+            name: string;
+            /** @description What it may do; a machine credential never manages credentials */
+            scopes: ("meetings:read" | "meetings:write" | "transcripts:read" | "audio:read" | "calendars:read" | "claims:write" | "webhooks:manage")[];
+            created_by: string | null;
+            /** Format: date-time */
+            created_at: string;
+        };
+        CreateMachineClient: {
+            name: string;
+            /** @description What it may do; a machine credential never manages credentials */
+            scopes: ("meetings:read" | "meetings:write" | "transcripts:read" | "audio:read" | "calendars:read" | "claims:write" | "webhooks:manage")[];
+        };
         CreatedRecording: components["schemas"]["Recording"] & {
             upload?: components["schemas"]["Upload"];
         };
@@ -534,6 +692,20 @@ export interface components {
                 [key: string]: string;
             };
             config?: components["schemas"]["RecordingConfig"];
+            /** @description Who recorded it, as the creator named them (CreateRecording `user`) */
+            user?: string | null;
+            /**
+             * Format: date-time
+             * @description When the final transcript and the mix track were both in (event recording.uploaded)
+             */
+            uploaded_at?: string | null;
+            /** @description The recorder gave up on it (event recording.failed) */
+            failed?: {
+                /** Format: date-time */
+                at: string;
+                reason: string;
+                message: string | null;
+            } | null;
         };
         CreateRecording: {
             /**
@@ -560,6 +732,11 @@ export interface components {
             config?: components["schemas"]["RecordingConfig"];
             /** @description Also return an upload token: for a backend that hands the recording to a desktop app (the Desktop SDK), which then sends it with that token only */
             upload?: boolean;
+            /**
+             * @description Who is recording, in the caller's terms (an email, the caller's own user id): for a backend that records on behalf of its users
+             * @example ana@acme.com
+             */
+            user?: string | null;
         };
         CreatedWebhook: components["schemas"]["WebhookEndpoint"] & {
             /** @description Shown once. Each delivery carries Recordem-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of `${t}.${raw body}` with this secret>; reject a t older than 5 minutes */
@@ -574,7 +751,7 @@ export interface components {
              */
             url: string;
             /** @description Which event types it gets */
-            events: ("recording.created" | "recording.ended" | "recording.stop_requested" | "recording.deleted" | "meeting.deleted" | "transcript.live" | "transcript.final" | "transcript.speakers" | "participants.updated" | "track.ready" | "notes.ready")[];
+            events: ("recording.created" | "recording.started" | "recording.ended" | "recording.uploaded" | "recording.failed" | "recording.stop_requested" | "recording.deleted" | "meeting.deleted" | "transcript.live" | "transcript.final" | "transcript.speakers" | "participants.updated" | "track.ready" | "notes.ready")[];
             /** Format: date-time */
             created_at: string;
             /**
@@ -590,7 +767,7 @@ export interface components {
              */
             url: string;
             /** @description Which event types it gets */
-            events: ("recording.created" | "recording.ended" | "recording.stop_requested" | "recording.deleted" | "meeting.deleted" | "transcript.live" | "transcript.final" | "transcript.speakers" | "participants.updated" | "track.ready" | "notes.ready")[];
+            events: ("recording.created" | "recording.started" | "recording.ended" | "recording.uploaded" | "recording.failed" | "recording.stop_requested" | "recording.deleted" | "meeting.deleted" | "transcript.live" | "transcript.final" | "transcript.speakers" | "participants.updated" | "track.ready" | "notes.ready")[];
         };
         Me: {
             /** @description The user id, or the client id for a machine token */
@@ -600,6 +777,8 @@ export interface components {
             scopes: string[];
             /** @description The OAuth client that obtained the token */
             client: string | null;
+            /** @description An API key or a client_credentials client: a backend, not a person */
+            machine: boolean;
         };
         MeetingDetail: components["schemas"]["Meeting"] & {
             recordings: components["schemas"]["Recording"][];
@@ -722,6 +901,15 @@ export interface components {
                 [key: string]: unknown;
             })[];
         };
+        ReportFailure: {
+            /**
+             * @description What stopped it
+             * @enum {string}
+             */
+            reason: "permission_denied" | "capture_failed" | "transcription_failed" | "upload_failed" | "other";
+            /** @description Detail, for whoever looks into it */
+            message?: string | null;
+        };
         SearchHit: {
             /** @description The meeting the hit is in; read it whole with getMeeting */
             meeting: {
@@ -771,7 +959,7 @@ export interface components {
             /** @description Event id (also the SSE id) */
             id: string;
             /** @enum {string} */
-            type: "recording.created" | "recording.ended" | "recording.stop_requested" | "recording.deleted" | "meeting.deleted" | "transcript.live" | "transcript.final" | "transcript.speakers" | "participants.updated" | "track.ready" | "notes.ready";
+            type: "recording.created" | "recording.started" | "recording.ended" | "recording.uploaded" | "recording.failed" | "recording.stop_requested" | "recording.deleted" | "meeting.deleted" | "transcript.live" | "transcript.final" | "transcript.speakers" | "participants.updated" | "track.ready" | "notes.ready";
             /** Format: date-time */
             at: string;
             /** Format: uuid */
@@ -781,7 +969,7 @@ export interface components {
              * @description null for meeting.deleted
              */
             recording_id: string | null;
-            /** @description transcript.live: {from, segments}; transcript.speakers: {speakers}; participants.updated: Participants; track.ready: Track; others: {} */
+            /** @description transcript.live: {from, segments}; transcript.speakers: {speakers}; participants.updated: Participants; track.ready: Track; recording.started, recording.uploaded: {ref, metadata, user}; recording.failed: {ref, metadata, user, reason, message}; others: {} */
             data: {
                 [key: string]: unknown;
             };
@@ -843,6 +1031,170 @@ export interface operations {
             };
             /** @description Not found in this workspace */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listApiKeys: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Keys, newest first, revoked ones included */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["ApiKey"][];
+                    };
+                };
+            };
+            /** @description Missing or invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Token lacks credentials:manage, or isn't a person who is an owner or admin of the workspace */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    createApiKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateApiKey"];
+            };
+        };
+        responses: {
+            /** @description The key, shown once */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedApiKey"];
+                };
+            };
+            /** @description Missing or invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Token lacks credentials:manage, or isn't a person who is an owner or admin of the workspace */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listMachineClients: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Clients, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["MachineClient"][];
+                    };
+                };
+            };
+            /** @description Missing or invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Token lacks credentials:manage, or isn't a person who is an owner or admin of the workspace */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    createMachineClient: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateMachineClient"];
+            };
+        };
+        responses: {
+            /** @description The client, with its secret shown once */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedMachineClient"];
+                };
+            };
+            /** @description Missing or invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Token lacks credentials:manage, or isn't a person who is an owner or admin of the workspace */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -976,6 +1328,53 @@ export interface operations {
             };
             /** @description Token lacks a required scope */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteMachineClient: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing or invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Token lacks credentials:manage, or isn't a person who is an owner or admin of the workspace */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found in this workspace */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1925,6 +2324,106 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    reportFailure: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReportFailure"];
+            };
+        };
+        responses: {
+            /** @description The recording */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Recording"];
+                };
+            };
+            /** @description Missing or invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Token lacks a required scope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found in this workspace */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    revokeApiKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing or invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Token lacks credentials:manage, or isn't a person who is an owner or admin of the workspace */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found in this workspace */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
             };
         };
     };

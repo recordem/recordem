@@ -18,7 +18,11 @@ export const recordingView = (r: Row<typeof recordings>, ts: Row<typeof tracks>[
   participants: r.participants ?? undefined,
   attendees: r.attendees,
   ref: r.ref, metadata: r.metadata, config: r.config ?? undefined,
+  user: r.user, uploaded_at: iso(r.uploadedAt), failed: r.failure ?? null,
 });
+
+/** What a backend needs to find its own record when one of its recordings changes state (webhooks). */
+export const recordingRefs = (r: Row<typeof recordings>) => ({ ref: r.ref, metadata: r.metadata, user: r.user });
 
 export const transcriptView = (t: Row<typeof transcripts>) => ({
   recording_id: t.recordingId, status: t.status, language: t.language, model: t.model, segments: t.segments,

@@ -1,7 +1,7 @@
 // Every route of the API. apps/api implements them; nothing else is served under /v1.
 import { createRoute, z } from "@hono/zod-openapi";
 import {
-  ContextRequest, CreatedRecording, CreatedWebhook, CreateRecording, CreateWebhook, ErrorBody, FinalTranscript, LiveAck, LiveBatch, Match, Me, Meeting, MeetingDetail, NameSpeaker, Notes, Page,
+  ApiKey, ContextRequest, CreateApiKey, CreatedApiKey, CreatedMachineClient, CreatedRecording, CreatedWebhook, CreateMachineClient, CreateRecording, CreateWebhook, MachineClient, ReportFailure, ErrorBody, FinalTranscript, LiveAck, LiveBatch, Match, Me, Meeting, MeetingDetail, NameSpeaker, Notes, Page,
   ReaderProfiles, Recording, SearchHit, StreamEvent, Transcript, Track, TrackUrl, UpdateMeeting, MoveRecording, WebhookEndpoint,
 } from "./schemas";
 import type { Scope } from "./scopes";
@@ -18,7 +18,7 @@ const sends = (...scopes: Scope[]) => ({ ...needs(...scopes), "x-upload": true }
 
 export const getMe = createRoute({
   method: "get", path: "/v1/me", operationId: "getMe", tags: ["identity"],
-  summary: "Who the token is", ...needs(),
+  summary: "Who the token is", description: "An upload token may ask too, to check it works.", ...sends(),
   responses: { 200: json(Me, "The token's subject, workspace and scopes"), ...errors },
 });
 
@@ -79,7 +79,7 @@ export const createRecording = createRoute({
 
 export const getRecording = createRoute({
   method: "get", path: "/v1/recordings/{id}", operationId: "getRecording", tags: ["recordings"],
-  summary: "A recording", ...needs("meetings:read"),
+  summary: "A recording", description: "An upload token reads its own recording.", ...sends("meetings:read"),
   request: { params: id },
   responses: { 200: json(Recording, "The recording"), ...errors, ...notFound },
 });
@@ -153,8 +153,8 @@ export const getTrackUrl = createRoute({
 
 export const stopRecording = createRoute({
   method: "post", path: "/v1/recordings/{id}/stop", operationId: "stopRecording", tags: ["recordings"],
-  summary: "Ask the recorder to stop", description: "The recorder reads it in its next live batch answer (`stop: true`).",
-  ...needs("meetings:write"),
+  summary: "Ask the recorder to stop", description: "The recorder reads it in its next live batch answer (`stop: true`). An upload token may ask it for its own recording.",
+  ...sends("meetings:write"),
   request: { params: id },
   responses: { 200: json(Recording, "The recording"), ...errors, ...notFound },
 });
@@ -240,4 +240,60 @@ export const putReaderDump = createRoute({
     body: { content: { "application/gzip": { schema: z.string().openapi({ format: "binary" }) } }, required: true },
   },
   responses: { 204: { description: "Kept" }, 413: json(ErrorBody, "Too large, or too many for this recording"), ...errors, ...notFound },
+});
+
+export const reportFailure = createRoute({
+  method: "post", path: "/v1/recordings/{id}/failure", operationId: "reportFailure", tags: ["recorder"],
+  summary: "The recorder gave up on a recording", description: "Kept on the recording and sent as recording.failed. Reported again, the last one wins; once the recording was uploaded, ignored.",
+  ...sends("meetings:write"),
+  request: { params: id, ...body(ReportFailure) },
+  responses: { 200: json(Recording, "The recording"), ...errors, ...notFound },
+});
+
+// Machine credentials: what a backend uses instead of a person's token. Only a workspace's owners and admins, signed
+// in themselves (not with a machine credential), manage them.
+const admin = { 403: json(ErrorBody, "Token lacks credentials:manage, or isn't a person who is an owner or admin of the workspace") };
+
+export const listApiKeys = createRoute({
+  method: "get", path: "/v1/api-keys", operationId: "listApiKeys", tags: ["credentials"],
+  summary: "The workspace's API keys", ...needs("credentials:manage"),
+  responses: { 200: json(z.object({ items: z.array(ApiKey) }), "Keys, newest first, revoked ones included"), ...errors, ...admin },
+});
+
+export const createApiKey = createRoute({
+  method: "post", path: "/v1/api-keys", operationId: "createApiKey", tags: ["credentials"],
+  summary: "Create an API key", description: "A long-lived Bearer token for a backend, in this workspace, with these scopes. The key is shown once.",
+  ...needs("credentials:manage"),
+  request: body(CreateApiKey),
+  responses: { 201: json(CreatedApiKey, "The key, shown once"), ...errors, ...admin },
+});
+
+export const revokeApiKey = createRoute({
+  method: "delete", path: "/v1/api-keys/{id}", operationId: "revokeApiKey", tags: ["credentials"],
+  summary: "Revoke an API key", description: "Refused everywhere within a minute (the api keeps a verified key for up to 60 s).",
+  ...needs("credentials:manage"),
+  request: { params: z.object({ id: z.string() }) },
+  responses: { 204: { description: "Revoked" }, ...errors, ...notFound, ...admin },
+});
+
+export const listMachineClients = createRoute({
+  method: "get", path: "/v1/machine-clients", operationId: "listMachineClients", tags: ["credentials"],
+  summary: "The workspace's OAuth client_credentials clients", ...needs("credentials:manage"),
+  responses: { 200: json(z.object({ items: z.array(MachineClient) }), "Clients, newest first"), ...errors, ...admin },
+});
+
+export const createMachineClient = createRoute({
+  method: "post", path: "/v1/machine-clients", operationId: "createMachineClient", tags: ["credentials"],
+  summary: "Create an OAuth client_credentials client", description: "For a backend that prefers short-lived tokens: it trades its id and secret for a 1 h access token at the token endpoint. The secret is shown once.",
+  ...needs("credentials:manage"),
+  request: body(CreateMachineClient),
+  responses: { 201: json(CreatedMachineClient, "The client, with its secret shown once"), ...errors, ...admin },
+});
+
+export const deleteMachineClient = createRoute({
+  method: "delete", path: "/v1/machine-clients/{id}", operationId: "deleteMachineClient", tags: ["credentials"],
+  summary: "Delete a client_credentials client", description: "It gets no new tokens; ones already issued last until they expire (1 h).",
+  ...needs("credentials:manage"),
+  request: { params: z.object({ id: z.string() }) },
+  responses: { 204: { description: "Deleted" }, ...errors, ...notFound, ...admin },
 });

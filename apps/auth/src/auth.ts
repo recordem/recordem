@@ -23,6 +23,9 @@ export const ISSUER = (() => {
 
 export const pool = new Pool({ connectionString: env("AUTH_DATABASE_URL") });
 
+/** The client metadata key holding a machine client's workspace (machine.ts). */
+export const WORKSPACE_KEY = "recordem_workspace";
+
 const ALLOWLIST = (process.env.SIGNUP_ALLOWLIST ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
 const signupAllowed = (email: string) => {
   if (!ALLOWLIST.length) return true;
@@ -92,7 +95,13 @@ export const auth = betterAuth({
           return ws;
         },
       },
-      customAccessTokenClaims: ({ referenceId }) => (referenceId ? { [CLAIMS.workspace]: referenceId } : {}),
+      // A person's token: the workspace they authorized it in. A client_credentials token (no user): the workspace in
+      // the client's metadata, which only machine.ts writes, marked as a machine.
+      customAccessTokenClaims: ({ user, referenceId, metadata }) => {
+        if (referenceId) return { [CLAIMS.workspace]: referenceId };
+        const ws = !user && typeof metadata?.[WORKSPACE_KEY] === "string" ? metadata[WORKSPACE_KEY] : null;
+        return ws ? { [CLAIMS.workspace]: ws, [CLAIMS.machine]: true } : {};
+      },
     }),
   ],
 });

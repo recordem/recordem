@@ -6,7 +6,7 @@ import IORedis from "ioredis";
 import { RedisClient } from "bun";
 
 export type StreamEvent = {
-  id: string; type: "recording.created" | "recording.ended" | "recording.stop_requested" | "recording.deleted" | "meeting.deleted" | "transcript.live" | "transcript.final" | "transcript.speakers" | "participants.updated" | "track.ready" | "notes.ready";
+  id: string; type: "recording.created" | "recording.started" | "recording.ended" | "recording.uploaded" | "recording.failed" | "recording.stop_requested" | "recording.deleted" | "meeting.deleted" | "transcript.live" | "transcript.final" | "transcript.speakers" | "participants.updated" | "track.ready" | "notes.ready";
   at: string; meeting_id: string; recording_id: string | null; data: Record<string, unknown>;
 };
 type Listener = (e: StreamEvent) => void;

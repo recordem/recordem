@@ -7,6 +7,7 @@ export const Me = z.object({
   workspace: z.string().openapi({ description: "The workspace the token acts in" }),
   scopes: z.array(z.string()),
   client: z.string().nullable().openapi({ description: "The OAuth client that obtained the token" }),
+  machine: z.boolean().openapi({ description: "An API key or a client_credentials client: a backend, not a person" }),
 }).openapi("Me");
 
 export const Meeting = z.object({
@@ -86,6 +87,7 @@ export const CreateRecording = z.object({
   metadata: z.record(z.string().max(40), z.string().max(500)).optional().openapi({ description: "Up to 20 key/values kept with the recording" }),
   config: RecordingConfig.optional(),
   upload: z.boolean().optional().openapi({ description: "Also return an upload token: for a backend that hands the recording to a desktop app (the Desktop SDK), which then sends it with that token only" }),
+  user: z.string().trim().min(1).max(200).nullish().openapi({ description: "Who is recording, in the caller's terms (an email, the caller's own user id): for a backend that records on behalf of its users", example: "ana@acme.com" }),
 }).openapi("CreateRecording");
 
 export const Upload = z.object({
@@ -107,6 +109,10 @@ export const Recording = z.object({
   ref: z.string().nullable().optional().openapi({ description: "The creator's own id for it, as given" }),
   metadata: z.record(z.string(), z.string()).optional(),
   config: RecordingConfig.optional().openapi({ description: "What the creator asked to capture" }),
+  user: z.string().nullable().optional().openapi({ description: "Who recorded it, as the creator named them (CreateRecording `user`)" }),
+  uploaded_at: datetime().nullable().optional().openapi({ description: "When the final transcript and the mix track were both in (event recording.uploaded)" }),
+  failed: z.object({ at: datetime(), reason: z.string(), message: z.string().nullable() }).nullable().optional()
+    .openapi({ description: "The recorder gave up on it (event recording.failed)" }),
 }).openapi("Recording");
 
 export const CreatedRecording = Recording.extend({
@@ -198,11 +204,11 @@ export const TrackUrl = z.object({
 
 export const StreamEvent = z.object({
   id: z.string().openapi({ description: "Event id (also the SSE id)" }),
-  type: z.enum(["recording.created", "recording.ended", "recording.stop_requested", "recording.deleted", "meeting.deleted", "transcript.live", "transcript.final", "transcript.speakers", "participants.updated", "track.ready", "notes.ready"]),
+  type: z.enum(["recording.created", "recording.started", "recording.ended", "recording.uploaded", "recording.failed", "recording.stop_requested", "recording.deleted", "meeting.deleted", "transcript.live", "transcript.final", "transcript.speakers", "participants.updated", "track.ready", "notes.ready"]),
   at: datetime(),
   meeting_id: z.string().uuid(),
   recording_id: z.string().uuid().nullable().openapi({ description: "null for meeting.deleted" }),
-  data: z.record(z.string(), z.unknown()).openapi({ description: "transcript.live: {from, segments}; transcript.speakers: {speakers}; participants.updated: Participants; track.ready: Track; others: {}" }),
+  data: z.record(z.string(), z.unknown()).openapi({ description: "transcript.live: {from, segments}; transcript.speakers: {speakers}; participants.updated: Participants; track.ready: Track; recording.started, recording.uploaded: {ref, metadata, user}; recording.failed: {ref, metadata, user, reason, message}; others: {}" }),
 }).openapi("StreamEvent");
 
 export const UpdateMeeting = z.object({
@@ -236,3 +242,43 @@ export const ReaderProfiles = z.object({
     apps: z.array(z.string()).openapi({ description: "Bundle ids it reads" }),
   }).passthrough()),
 }).openapi("ReaderProfiles");
+
+export const ReportFailure = z.object({
+  reason: z.enum(["permission_denied", "capture_failed", "transcription_failed", "upload_failed", "other"]).openapi({ description: "What stopped it" }),
+  message: z.string().max(2000).nullish().openapi({ description: "Detail, for whoever looks into it" }),
+}).openapi("ReportFailure");
+
+const machineScopes = z.array(z.enum(["meetings:read", "meetings:write", "transcripts:read", "audio:read", "calendars:read", "claims:write", "webhooks:manage"])).min(1)
+  .openapi({ description: "What it may do; a machine credential never manages credentials" });
+
+export const ApiKey = z.object({
+  id: z.string(),
+  name: z.string(),
+  prefix: z.string().openapi({ description: "The key's first characters, to tell keys apart", example: "rk_live_3fQa" }),
+  scopes: machineScopes,
+  created_by: z.string(),
+  created_at: datetime(),
+  last_used_at: datetime().nullable(),
+  revoked_at: datetime().nullable(),
+}).openapi("ApiKey");
+
+export const CreateApiKey = z.object({ name: z.string().trim().min(1).max(100), scopes: machineScopes }).openapi("CreateApiKey");
+
+export const CreatedApiKey = ApiKey.extend({
+  key: z.string().openapi({ description: "Shown once. Send it as `Authorization: Bearer rk_live_…`" }),
+}).openapi("CreatedApiKey");
+
+export const MachineClient = z.object({
+  client_id: z.string(),
+  name: z.string(),
+  scopes: machineScopes,
+  created_by: z.string().nullable(),
+  created_at: datetime(),
+}).openapi("MachineClient");
+
+export const CreateMachineClient = z.object({ name: z.string().trim().min(1).max(100), scopes: machineScopes }).openapi("CreateMachineClient");
+
+export const CreatedMachineClient = MachineClient.extend({
+  client_secret: z.string().openapi({ description: "Shown once" }),
+  token_endpoint: z.string().url().openapi({ description: "POST grant_type=client_credentials with client_id, client_secret and resource=<the API's URL>" }),
+}).openapi("CreatedMachineClient");
