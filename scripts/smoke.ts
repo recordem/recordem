@@ -138,7 +138,7 @@ const tu = await (await call("GET", `/v1/recordings/${recId}/tracks/mic_hq/url`)
 r = await fetch(tu.url, { headers: { range: "bytes=100-199" } });
 const part = new Uint8Array(await r.arrayBuffer());
 step("signed track URL serves a byte range, no token", r.status === 206 && part.length === 100 && part[0] === bytes[100], r.headers.get("content-range"));
-step("tampered URL is refused", (await fetch(tu.url.replace(/sig=./, "sig=x"))).status === 403);
+step("tampered URL is refused", (await fetch(tu.url.replace(/sig=(.)/, (_, c) => `sig=${c === "x" ? "y" : "x"}`))).status === 403);
 step("SSE got track.ready", events.some((e) => e.type === "track.ready"));
 r = await call("POST", `/v1/recordings/${recId}/stop`);
 step("stop after the end is a no-op", r.ok);
