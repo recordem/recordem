@@ -1,16 +1,33 @@
 {
-  "name": "@recordem/cli",
+  "name": "recordem",
   "version": "0.1.0",
   "type": "module",
   "license": "MIT",
   "description": "Recordem from the terminal: find meetings, search what was said, read transcripts and notes",
   "bin": {
-    "recordem": "./src/main.ts"
+    "recordem": "./dist/recordem.js"
   },
   "scripts": {
+    "build": "bun build src/main.ts --target node --outfile dist/recordem.js",
+    "prepublishOnly": "bun run build",
+    "dev": "bun src/main.ts",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/recordem/recordem.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/recordem/recordem",
+  "devDependencies": {
     "@recordem/sdk": "workspace:*"
   }
 }

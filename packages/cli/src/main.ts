@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 // recordem: the Recordem API from a terminal, for people and for agents. Every command is one or two calls of
 // @recordem/sdk; --json prints what the API answered. Exit codes: 0 ok, 1 failed, 2 wrong usage, 3 not signed in (or
 // the token lacks a scope), 4 not found.

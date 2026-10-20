@@ -2,7 +2,10 @@
 // provider once (dynamic registration, like an MCP client), then runs authorization code + PKCE with a loopback
 // redirect on a random port. On a headless box the browser is elsewhere and can't reach that port: pasting the URL
 // it ended on works too. Tokens live in ~/.config/recordem/credentials.json (0600), per server.
+import { spawn } from "node:child_process";
 import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -70,13 +73,14 @@ export async function login(api: string, log: (s: string) => void) {
   const store = await load();
   const d = await discover(api);
   const callback = Promise.withResolvers<URL>();
-  const http = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: (req) => {
-    const u = new URL(req.url);
-    if (u.pathname !== "/callback") return new Response("not found", { status: 404 });
+  const http = createServer((req, res) => {
+    const u = new URL(req.url ?? "/", "http://127.0.0.1");
+    if (u.pathname !== "/callback") return void res.writeHead(404).end("not found");
     callback.resolve(u);
-    return new Response("Signed in to Recordem. You can close this tab.");
-  } });
-  const redirect = `http://127.0.0.1:${http.port}/callback`;
+    res.end("Signed in to Recordem. You can close this tab.");
+  });
+  await new Promise<void>((r) => http.listen(0, "127.0.0.1", r));
+  const redirect = `http://127.0.0.1:${(http.address() as AddressInfo).port}/callback`;
   let client = store.servers[api]?.client_id;
   if (!client) {
     if (!d.registration) throw new AuthError("this server doesn't let clients register themselves");
@@ -95,9 +99,9 @@ export async function login(api: string, log: (s: string) => void) {
     code_challenge: b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))), code_challenge_method: "S256",
   })}`;
   log(`Open this URL to sign in:\n\n  ${url}\n\nIf the browser is on another machine, it ends on a page that doesn't load: paste that page's URL here.`);
-  Bun.spawn([process.platform === "darwin" ? "open" : "xdg-open", url], { stdout: "ignore", stderr: "ignore" }).exited.catch(() => {});
+  spawn(process.platform === "darwin" ? "open" : "xdg-open", [url], { stdio: "ignore" }).on("error", () => {}).unref();
   const input = pasted();
-  const back = await Promise.race([callback.promise, input.line.then((l) => new URL(l.trim()))]).finally(() => { input.close(); void http.stop(); });
+  const back = await Promise.race([callback.promise, input.line.then((l) => new URL(l.trim()))]).finally(() => { input.close(); http.close(); });
   if (back.searchParams.get("state") !== state) throw new AuthError(`sign-in failed: ${back.searchParams.get("error_description") ?? back.searchParams.get("error") ?? "the URL is not from this sign-in"}`);
   const tokens = await tokenRequest(d.tokenUrl, {
     grant_type: "authorization_code", code: back.searchParams.get("code") ?? "", redirect_uri: redirect, client_id: client, code_verifier: verifier, resource: api,

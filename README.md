@@ -16,8 +16,8 @@ Your meetings, for any agent, three ways over the same API:
 - **MCP:** add `https://<your server's mcp>/mcp` as a remote MCP server (Claude, ChatGPT, editors). It asks you to sign
   in, then offers `search_transcripts`, `list_meetings`, `get_meeting`, `get_transcript` and `get_notes`.
 - **CLI:** `recordem login --server <api url>`, then `recordem search "…"`, `recordem meeting <id>`,
-  `recordem transcript <id>`, `recordem notes <id>` (`--json` on any of them). Not on npm yet: from a checkout,
-  `bun install && cd packages/cli && bun link` (puts `recordem` in ~/.bun/bin), or run `bun packages/cli/src/main.ts`.
+  `recordem transcript <id>`, `recordem notes <id>` (`--json` on any of them). Install with `npm i -g recordem`
+  (Node 22+), or run it once with `npx recordem`.
 - **Skill:** `npx skills add recordem/recordem` teaches a coding agent (Claude Code, Codex, Cursor…) to use the CLI.
 
 ## License
