@@ -13,7 +13,8 @@ apps/web/           portal (Vite + React): calendar, meeting page, live transcri
 apps/mcp/           MCP server for agents (streamable HTTP, /mcp): an OAuth protected resource, a client of packages/sdk
 apps/recorder/      macOS menu-bar recorder (Tauri 2, Rust): detects calls, records, transcribes locally (see its README)
 packages/contract/  zod schemas + route definitions → openapi.json
-packages/sdk/       TypeScript client: types generated from openapi.json (`bun run --filter @recordem/sdk generate`)
+packages/sdk/       TypeScript client: types generated from openapi.json (`bun run --filter @recordem/sdk generate`); on npm
+                    as @recordem/sdk (npm pack builds dist/; the monorepo imports the source)
 packages/db/        Drizzle schema + migrations of the api database
 packages/cli/       `recordem` CLI: sign in (loopback PKCE), search, meetings, transcripts, notes; a client of packages/sdk
 skills/             agent skills (`npx skills add recordem/recordem`): how to use the CLI
@@ -24,8 +25,9 @@ compose.yaml        Postgres and Redis for dev and self-hosting
 
 - **Contract first.** A route is defined in `packages/contract` before `apps/api` implements it; clients only call
   what is in `openapi.json`. `/v1` only grows; breaking changes go to `/v2`.
-- **Identity is separate.** `apps/auth` owns users, sessions, workspaces and OAuth clients in schema `auth`, under its own role.
-  `apps/api` only verifies JWTs against the auth JWKS and reads `sub`, `workspace` and `scope`.
+- **Identity is separate.** `apps/auth` owns users, sessions, workspaces, OAuth clients and API keys in schema `auth`, under
+  its own role. `apps/api` only verifies: JWTs against the auth JWKS (reading `sub`, `workspace`, `scope`, `machine`),
+  and API keys (`rk_live_…`) by asking auth's internal port. Machine credentials: [docs/desktop-sdk-server.md](docs/desktop-sdk-server.md).
 - **Every api row has a `workspace_id`**, and every query filters by it.
 - **Integrations are clients**: they keep their own data and store Recordem ids plus the opaque `ref` they gave us.
 - **Self-hosting is first-class.** Hosted-only concerns (billing, limits) plug in from outside this repository.
@@ -37,6 +39,7 @@ cp .env.example .env && docker compose up -d && bun install
 bun run db:migrate && bun run dev        # auth :39410, api :39411, mcp :39414
 bun run smoke                            # OAuth sign-up → token → record a call → read it back → isolation
 bun run smoke:agents                     # search, the CLI's sign-in and commands, the MCP server's OAuth and tools
+bun run smoke:sdk                        # API keys, client_credentials, a backend's recording sent with an upload token, webhooks
 ```
 
 The portal runs on https (a self-signed cert in `apps/web/.cert/`): OAuth refuses plain-http redirect URIs off

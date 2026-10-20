@@ -20,6 +20,13 @@ Your meetings, for any agent, three ways over the same API:
   (Node 22+), or run it once with `npx @recordem/cli`.
 - **Skill:** `npx skills add recordem/recordem` teaches a coding agent (Claude Code, Codex, Cursor…) to use the CLI.
 
+## Your product
+
+Record your users' calls from your own app, as with Recall.ai's Desktop SDK: your backend holds an API key (portal →
+Settings) and creates each recording with [`@recordem/sdk`](packages/sdk); your desktop app sends it with an upload
+token good for that recording only; webhooks tell your backend when it's uploaded, with your own `ref`. See
+[docs/desktop-sdk-server.md](docs/desktop-sdk-server.md).
+
 ## License
 
 The server (`apps/api`, `apps/auth`, `apps/worker`, `apps/web`, `apps/mcp`) is [AGPL-3.0](LICENSE). The recorder and
