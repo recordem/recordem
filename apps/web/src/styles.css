@@ -77,6 +77,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 .player select { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; background: var(--panel); }
 
 .notes { padding: 4px 8px 16px; margin-bottom: 8px; border-bottom: 1px solid var(--line); }
+.notes:has(+ .facts) { border-bottom: 0; padding-bottom: 0; margin-bottom: 0; }
 .notes h3 { font-size: 13px; font-weight: 650; margin: 16px 0 6px; }
 .notes ul { margin: 0; padding-left: 20px; }
 .notes li { margin: 3px 0; }
@@ -115,6 +116,7 @@ button.icon:hover, button.icon[aria-expanded="true"] { background: var(--soft); 
 .segmented button { background: none; color: var(--muted); padding: 5px 12px; border-radius: 7px; font-size: 13px; font-variant-numeric: tabular-nums; }
 .segmented button[aria-selected="true"] { background: var(--panel); color: var(--fg); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
 
+.facts h3 { font-size: 13px; font-weight: 650; margin: 16px 0 6px; }
 .facts { padding: 4px 8px 16px; margin-bottom: 8px; border-bottom: 1px solid var(--line); }
 .people { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 6px; padding: 0; }
 .people li { display: inline-flex; gap: 8px; align-items: baseline; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); font-size: 14px; }

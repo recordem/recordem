@@ -323,6 +323,7 @@ function Facts({ rec, t, notes }: { rec: Recording; t: Transcript | null; notes:
   if (people.length === 0 && !t) return null;
   return (
     <section className="facts">
+      <h3>People</h3>
       {people.length > 0 && (
         <ul className="people">
           {people.map((p) => (
