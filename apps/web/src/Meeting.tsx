@@ -1,6 +1,6 @@
 // A meeting: its recording's notes and transcript with names on the voices, a player where a line's time seeks to it,
 // and, while the call goes on, the transcript growing live over the event stream.
-import type { MeetingDetail, Notes, Participants, Recording, Segment, Transcript } from "@recordem/sdk";
+import type { MeetingDetail, Notes, Participants, Recording, Segment, SpeakerName, Transcript } from "@recordem/sdk";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { callApp, clock, day, duration, speakerName, time } from "./format";
@@ -79,18 +79,24 @@ export function MeetingPage({ id }: { id: string }) {
   );
 }
 
-/** A "⋯" button and the menu it opens; closes on a choice, a click outside or Escape. */
-function Menu({ label, children }: { label: string; children: (close: () => void) => React.ReactNode }) {
-  const [open, setOpen] = useState(false);
+/** Closes a popup on a click outside `box` or Escape. */
+function useDismiss(open: boolean, close: () => void) {
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
-    const away = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
-    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    const away = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) close(); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
     document.addEventListener("mousedown", away);
     document.addEventListener("keydown", esc);
     return () => { document.removeEventListener("mousedown", away); document.removeEventListener("keydown", esc); };
-  }, [open]);
+  }, [open, close]);
+  return box;
+}
+
+/** A "⋯" button and the menu it opens; closes on a choice, a click outside or Escape. */
+function Menu({ label, children }: { label: string; children: (close: () => void) => React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const box = useDismiss(open, useCallback(() => setOpen(false), []));
   return (
     <div className="menu" ref={box}>
       <button className="ghost icon" aria-label={label} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>⋯</button>
@@ -206,14 +212,12 @@ function RecordingView({ rec, onChange }: { rec: Recording; onChange: () => void
   };
   const stop = async () => { setStopping(true); await api.POST("/v1/recordings/{id}/stop", { params: { path: { id: rec.id } } }); };
   const names = t?.speakers ?? [];
-  // A voice of the other side gets a name by hand; an empty one takes it back to "Speaker N".
-  const rename = async (s: Segment) => {
-    if (!s.speaker || s.channel !== "system") return;
-    const name = prompt("Who is this?", speakerName(s, segs, names));
-    if (name === null) return;
-    const { data } = await api.PATCH("/v1/recordings/{id}/transcript/speakers", { params: { path: { id: rec.id } }, body: { label: s.speaker, name: name.trim() || null } });
+  // A voice of the other side gets a name by hand; null takes it back to "Speaker N".
+  const rename = async (label: string, name: string | null) => {
+    const { data } = await api.PATCH("/v1/recordings/{id}/transcript/speakers", { params: { path: { id: rec.id } }, body: { label, name } });
     if (data) setT(data);
   };
+  const me = names.find((n) => n.label === "mic")?.name;
 
   return (
     <>
@@ -235,6 +239,7 @@ function RecordingView({ rec, onChange }: { rec: Recording; onChange: () => void
           )}
         </div>
       )}
+      <Facts rec={rec} t={t} notes={notes} />
       {notes && <NotesView n={notes} />}
       {missing && !live && <p className="muted">No transcript for this recording.</p>}
       <ol className="transcript">
@@ -245,7 +250,8 @@ function RecordingView({ rec, onChange }: { rec: Recording; onChange: () => void
           return (
             <li key={i} className={`${s.channel}${i === now ? " now" : ""}${same ? " cont" : ""}`}>
               {!same && (nameable
-                ? <button className="who" title="Name this voice" onClick={() => rename(s)}>{who}</button>
+                ? <NamePicker who={who} named={names.find((n) => n.label === s.speaker)} people={rec.attendees.filter((a) => a !== me)}
+                    taken={names.filter((n) => n.label !== s.speaker).map((n) => n.name)} onPick={(name) => rename(s.speaker!, name)} />
                 : <span className="who">{who}</span>)}
               <button className="ts" onClick={() => seek(s)} disabled={!src} title="Play from here">{clock(s.start_ms)}</button>
               <p>{s.text}</p>
@@ -255,6 +261,83 @@ function RecordingView({ rec, onChange }: { rec: Recording; onChange: () => void
       </ol>
       <div ref={bottom} />
     </>
+  );
+}
+
+/** Who a voice is: one of the people the call listed (the ones not yet given to another voice first), or a name typed
+ * when they aren't there; or no name, back to "Speaker N". */
+function NamePicker({ who, named, people, taken, onPick }: {
+  who: string; named: SpeakerName | undefined; people: string[]; taken: string[]; onPick: (name: string | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const close = useCallback(() => setOpen(false), []);
+  const box = useDismiss(open, close);
+  const pick = (name: string | null) => { close(); if (name !== (named?.name ?? null)) onPick(name); };
+  const order = [...people].sort((a, b) => Number(taken.includes(a)) - Number(taken.includes(b)));
+  return (
+    <div className="picker who" ref={box}>
+      <button className="who" title="Name this voice" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>{who}</button>
+      {open && (
+        <div className="menu-pop" role="menu">
+          <p className="menu-label">Who is this voice?</p>
+          {order.map((p) => (
+            <button key={p} role="menuitemradio" aria-checked={p === named?.name} onClick={() => pick(p)}>
+              {p}{p === named?.name ? " ✓" : taken.includes(p) && <span className="muted small"> · another voice</span>}
+            </button>
+          ))}
+          {order.length > 0 && <hr />}
+          <input className="picker-input" autoFocus={order.length === 0} placeholder="Someone else…" maxLength={120}
+            onKeyDown={(e) => { if (e.key === "Enter" && e.currentTarget.value.trim()) pick(e.currentTarget.value.trim()); }} />
+          {named && (
+            <>
+              <hr />
+              <button role="menuitem" onClick={() => pick(null)}>Remove the name</button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Who was there and how long each spoke, and, folded, how the recording was made. */
+function Facts({ rec, t, notes }: { rec: Recording; t: Transcript | null; notes: Notes | null }) {
+  const segs = t?.segments ?? [];
+  const names = t?.speakers ?? [];
+  const me = names.find((n) => n.label === "mic")?.name;
+  const talk = new Map<string, number>();
+  for (const s of segs) {
+    const who = s.channel === "mic" ? (me ?? "You") : speakerName(s, segs, names);
+    talk.set(who, (talk.get(who) ?? 0) + s.end_ms - s.start_ms);
+  }
+  // Everyone listed, the ones who spoke most first; then voices nobody could be named for.
+  const people = [...new Set([...rec.attendees, ...talk.keys()])].sort((a, b) => (talk.get(b) ?? 0) - (talk.get(a) ?? 0));
+  const languages = [...new Set(segs.map((s) => s.language).filter(Boolean))];
+  const facts: [string, string | null | undefined][] = [
+    ["Recorded", [time(rec.started_at), rec.ended_at && time(rec.ended_at)].filter(Boolean).join(" – ")],
+    ["Transcript", t && [t.status, languages.join(", ") || t.language, `${segs.length} lines`].filter(Boolean).join(" · ")],
+    ["Speech to text", t?.model],
+    ["Voices named", names.filter((n) => n.label !== "mic").map((n) => `${n.name} (${n.source}${n.confidence != null ? ` ${Math.round(n.confidence * 100)}%` : ""})`).join(", ") || null],
+    ["Notes", notes && [notes.model, notes.language].filter(Boolean).join(" · ")],
+  ];
+  if (people.length === 0 && !t) return null;
+  return (
+    <section className="facts">
+      {people.length > 0 && (
+        <ul className="people">
+          {people.map((p) => (
+            <li key={p} className={talk.has(p) ? undefined : "silent"}>
+              <span>{p}{p === me && <span className="muted"> (you)</span>}</span>
+              <span className="muted small">{talk.has(p) ? clock(talk.get(p)!) : "didn't speak"}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <details>
+        <summary className="muted small">Recording details</summary>
+        <dl>{facts.filter(([, v]) => v).map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
+      </details>
+    </section>
   );
 }
 
