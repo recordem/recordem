@@ -21,9 +21,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let _ = done_tx.send(());
         }
     })?;
-    // RECORDEM_VOICE_HQ=0: without the 48 kHz voice track.
+    // RECORDEM_VOICE_HQ=0: without the 48 kHz voice track. RECORDEM_MIC=<name>: that microphone (see listDevices).
     let voice_hq = std::env::var("RECORDEM_VOICE_HQ").map_or(true, |v| v != "0");
-    let ready = client.init(&Settings { api_url: Some(api.clone()), data_dir: Some(data.clone()), detect: Some(false), voice_hq: Some(voice_hq), ..Default::default() })?;
+    let mic_device = std::env::var("RECORDEM_MIC").ok();
+    let ready = client.init(&Settings { api_url: Some(api.clone()), data_dir: Some(data.clone()), detect: Some(false), voice_hq: Some(voice_hq), mic_device, ..Default::default() })?;
     println!("ready: {}", serde_json::to_string(&ready)?);
     let window = client.prepare_desktop_audio_recording()?;
     let id = client.start_recording(&StartRecording { window_id: window.clone(), upload_token: Some(token.clone()), ..Default::default() })?;
