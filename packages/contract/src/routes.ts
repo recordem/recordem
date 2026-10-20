@@ -38,8 +38,8 @@ export const listMeetings = createRoute({
 
 export const search = createRoute({
   method: "get", path: "/v1/search", operationId: "search", tags: ["meetings"],
-  summary: "Find what was said, and meetings by title or by who was in them",
-  description: "Full-text search over the workspace's transcripts (live and final), meeting titles and attendees, best match first. Words match whole, in any language, case-insensitive; accents count (\"reunião\" ≠ \"reuniao\"). A transcript matches when it has every word; within it, each line with any of them is a hit, lines with all of them first. Hits are lines, not meetings: several can come from one meeting.",
+  summary: "Find what was said or noted, and meetings by title or by who was in them",
+  description: "Full-text search over the workspace's meeting notes, transcripts (live and final), meeting titles and attendees, best match first: titles, then notes, then transcript lines, then attendees. Words match whole, in any language, case-insensitive; accents count (\"reunião\" ≠ \"reuniao\"). A transcript (or a recording's notes) matches when it has every word; within it, each line (or part of the notes) with any of them is a hit, those with all of them first. Hits are lines and parts, not meetings: several can come from one meeting.",
   ...needs("meetings:read", "transcripts:read"),
   request: {
     query: z.object({

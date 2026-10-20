@@ -352,8 +352,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Find what was said, and meetings by title or by who was in them
-         * @description Full-text search over the workspace's transcripts (live and final), meeting titles and attendees, best match first. Words match whole, in any language, case-insensitive; accents count ("reunião" ≠ "reuniao"). A transcript matches when it has every word; within it, each line with any of them is a hit, lines with all of them first. Hits are lines, not meetings: several can come from one meeting.
+         * Find what was said or noted, and meetings by title or by who was in them
+         * @description Full-text search over the workspace's meeting notes, transcripts (live and final), meeting titles and attendees, best match first: titles, then notes, then transcript lines, then attendees. Words match whole, in any language, case-insensitive; accents count ("reunião" ≠ "reuniao"). A transcript (or a recording's notes) matches when it has every word; within it, each line (or part of the notes) with any of them is a hit, those with all of them first. Hits are lines and parts, not meetings: several can come from one meeting.
          */
         get: operations["search"];
         put?: never;
@@ -733,14 +733,14 @@ export interface components {
             };
             /**
              * Format: uuid
-             * @description The recording the line is from (getTranscript, getNotes); null for a hit on the meeting's title
+             * @description The recording the hit is from (getTranscript, getNotes); null for a hit on the meeting's title
              */
             recording_id: string | null;
             /**
-             * @description What matched: a line of a transcript, the meeting's title, or someone the call app listed in it
+             * @description What matched: the recording's notes (written by a language model from the transcript), a line of its transcript, the meeting's title, or someone the call app listed in it
              * @enum {string}
              */
-            field: "transcript" | "title" | "attendees";
+            field: "notes" | "transcript" | "title" | "attendees";
             /** @description The matching line, for field transcript */
             segment: {
                 /** @description From the start of the recording; add it to the recording's started_at for the time of day */
@@ -750,6 +750,18 @@ export interface components {
                 speaker: string | null;
                 /** @description Who it is, from the transcript's speakers; null when the voice has no name */
                 speaker_name: string | null;
+                text: string;
+            } | null;
+            /** @description The matching part of the notes, for field notes */
+            notes: {
+                /**
+                 * @description Which part of the notes: the summary, an action item, or a topic (its title, or one of its points)
+                 * @enum {string}
+                 */
+                part: "summary" | "action_item" | "topic";
+                /** @description The topic's title, for part topic */
+                topic: string | null;
+                /** @description The matching part: the whole summary, an action item (with its owner), a topic's title or point */
                 text: string;
             } | null;
             /** @description Higher is a better match; only comparable within one search */

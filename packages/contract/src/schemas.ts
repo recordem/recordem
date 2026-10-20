@@ -167,8 +167,8 @@ export const Notes = z.object({
 
 export const SearchHit = z.object({
   meeting: z.object({ id: z.string().uuid(), title: z.string().nullable(), starts_at: datetime() }).openapi({ description: "The meeting the hit is in; read it whole with getMeeting" }),
-  recording_id: z.string().uuid().nullable().openapi({ description: "The recording the line is from (getTranscript, getNotes); null for a hit on the meeting's title" }),
-  field: z.enum(["transcript", "title", "attendees"]).openapi({ description: "What matched: a line of a transcript, the meeting's title, or someone the call app listed in it" }),
+  recording_id: z.string().uuid().nullable().openapi({ description: "The recording the hit is from (getTranscript, getNotes); null for a hit on the meeting's title" }),
+  field: z.enum(["notes", "transcript", "title", "attendees"]).openapi({ description: "What matched: the recording's notes (written by a language model from the transcript), a line of its transcript, the meeting's title, or someone the call app listed in it" }),
   segment: z.object({
     start_ms: z.number().int().openapi({ description: "From the start of the recording; add it to the recording's started_at for the time of day" }),
     end_ms: z.number().int(),
@@ -176,6 +176,11 @@ export const SearchHit = z.object({
     speaker_name: z.string().nullable().openapi({ description: "Who it is, from the transcript's speakers; null when the voice has no name" }),
     text: z.string(),
   }).nullable().openapi({ description: "The matching line, for field transcript" }),
+  notes: z.object({
+    part: z.enum(["summary", "action_item", "topic"]).openapi({ description: "Which part of the notes: the summary, an action item, or a topic (its title, or one of its points)" }),
+    topic: z.string().nullable().openapi({ description: "The topic's title, for part topic" }),
+    text: z.string().openapi({ description: "The matching part: the whole summary, an action item (with its owner), a topic's title or point" }),
+  }).nullable().openapi({ description: "The matching part of the notes, for field notes" }),
   rank: z.number().openapi({ description: "Higher is a better match; only comparable within one search" }),
 }).openapi("SearchHit");
 
