@@ -447,8 +447,9 @@ impl Engine {
             };
             let error = result.as_ref().err().map(|e| e.to_string());
             e.emit(Event::RecordingEnded { window, recording_id: meta.id.clone(), warning, error: error.clone() });
-            if error.is_none() {
-                e.process(dir).await;
+            match error {
+                None => e.process(dir).await,
+                Some(m) => e.report(&dir, "capture_failed", &m).await,
             }
             e.0.active.fetch_sub(1, Ordering::Relaxed);
         });
@@ -530,6 +531,16 @@ impl Engine {
         self.emit(Event::UploadStatus { recording_id: id.into(), status, progress, error });
     }
 
+    /// Tells the server the recording failed for good (best effort: with no usable token, only the host knows).
+    async fn report(&self, dir: &Path, reason: &str, message: &str) {
+        let Ok(meta) = read_json::<Meta>(&dir.join("meta.json")) else { return };
+        let Some(token) = usable(meta.upload_token.as_deref()) else { return };
+        let target = api::Target { api_url: config::load().api_url, token };
+        if let Err(e) = api::report_failure(&target, &meta.id, reason, message).await {
+            eprintln!("failure of {} not reported: {e}", meta.id);
+        }
+    }
+
     /// Transcribe (unless already done) and send one recording directory. One at a time.
     async fn process(&self, dir: PathBuf) {
         let Some(id) = dir.file_name().map(|n| n.to_string_lossy().to_string()) else { return };
@@ -576,10 +587,13 @@ impl Engine {
                 })
                 .await;
                 ticker.abort();
-                let mut segments = match segs {
-                    Ok(Ok(s)) => s,
-                    Ok(Err(e)) => return self.status(id, UploadStatus::Failed, None, Some(format!("transcription failed: {e}"))),
-                    Err(e) => return self.status(id, UploadStatus::Failed, None, Some(format!("transcription failed: {e}"))),
+                let mut segments = match segs.map_err(anyhow::Error::from).and_then(|r| r) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        let m = format!("transcription failed: {e}");
+                        self.report(dir, "transcription_failed", &m).await;
+                        return self.status(id, UploadStatus::Failed, None, Some(m));
+                    }
                 };
                 // Names for the lines, from who the call app showed speaking.
                 let speakers = participants::name_lines(&participants::read(dir), &mut segments);

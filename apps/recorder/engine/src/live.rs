@@ -172,7 +172,7 @@ pub async fn send(api_url: String, token: Token, id: String, mut segments: tokio
                     stop.cancel();
                 }
             }
-            Err(e) => eprintln!("live transcript not sent: {e}"),
+            Err(e) => eprintln!("live transcript not sent: {e:#}"),
         }
         if !open {
             break;

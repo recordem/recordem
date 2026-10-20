@@ -163,6 +163,15 @@ pub async fn upload_track(c: &Target, id: &str, kind: &str, path: &std::path::Pa
     Ok(())
 }
 
+/// The engine gave up on the recording: the server keeps why and tells the host's backend (recording.failed).
+/// `reason`: permission_denied | capture_failed | transcription_failed | upload_failed | other.
+pub async fn report_failure(c: &Target, id: &str, reason: &str, message: &str) -> anyhow::Result<()> {
+    let body = serde_json::json!({ "reason": reason, "message": message.chars().take(2000).collect::<String>() });
+    let r = client().post(url(c, &format!("/recordings/{id}/failure"))).bearer_auth(&c.token).json(&body).send().await?;
+    check(r).await?;
+    Ok(())
+}
+
 /// One of the reader's broken snapshots (dumps.rs), gzipped JSON.
 pub async fn put_reader_dump(c: &Target, id: &str, name: &str, body: Vec<u8>) -> anyhow::Result<()> {
     let r = client()
