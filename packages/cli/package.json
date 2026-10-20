@@ -1,11 +1,11 @@
 {
-  "name": "recordem",
+  "name": "@recordem/cli",
   "version": "0.1.0",
   "type": "module",
   "license": "MIT",
   "description": "Recordem from the terminal: find meetings, search what was said, read transcripts and notes",
   "bin": {
-    "recordem": "./dist/recordem.js"
+    "recordem": "dist/recordem.js"
   },
   "scripts": {
     "build": "bun build src/main.ts --target node --outfile dist/recordem.js",

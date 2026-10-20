@@ -11,7 +11,7 @@ const AUTH = process.env.AUTH_URL ?? "http://localhost:39410";
 const API = process.env.API_URL ?? "http://localhost:39411";
 const MCP = process.env.MCP_URL ?? "http://localhost:39414";
 const REDIRECT = "http://127.0.0.1:39497/callback";
-// The published build, run by Node: what `npm i -g recordem` installs.
+// The published build, run by Node: what `npm i -g @recordem/cli` installs.
 const CLI = join(import.meta.dir, "../packages/cli/dist/recordem.js");
 await Bun.$`bun run --cwd ${join(import.meta.dir, "../packages/cli")} build`.quiet();
 

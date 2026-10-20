@@ -13,7 +13,7 @@ reads them. It only reads; it never changes or deletes anything.
 
 Check first: `recordem whoami`. Exit code 3 means not signed in.
 
-- Not installed: `npm i -g recordem` (Node 22+), or run `npx -y recordem` wherever this skill says `recordem`.
+- Not installed: `npm i -g @recordem/cli` (Node 22+), or run `npx -y @recordem/cli` wherever this skill says `recordem`.
 - Not signed in: ask the user to run `recordem login --server <their API URL>` themselves (it opens a browser; on a
   machine without one they paste back the URL the browser ends on). Don't try to complete the sign-in for them.
 - `RECORDEM_URL` picks the server, `RECORDEM_TOKEN` a token to use instead of the stored sign-in.

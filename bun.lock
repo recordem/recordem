@@ -71,7 +71,7 @@
       },
     },
     "packages/cli": {
-      "name": "recordem",
+      "name": "@recordem/cli",
       "version": "0.1.0",
       "bin": {
         "recordem": "./dist/recordem.js",
@@ -317,6 +317,8 @@
     "@recordem/api": ["@recordem/api@workspace:apps/api"],
 
     "@recordem/auth": ["@recordem/auth@workspace:apps/auth"],
+
+    "@recordem/cli": ["@recordem/cli@workspace:packages/cli"],
 
     "@recordem/contract": ["@recordem/contract@workspace:packages/contract"],
 
@@ -749,8 +751,6 @@
     "react": ["react@19.3.0", "", {}, "sha512-E8LUcbtBWt20bbl2YoHfx4ZDBdxVTfOKtCZn9cDSJ4l6/nuoApcpIBcj47t2wZoVX8g2ZHuMHbiShgCR1T5Sog=="],
 
     "react-dom": ["react-dom@19.3.0", "", { "dependencies": { "scheduler": "^0.28.0" }, "peerDependencies": { "react": "^19.3.0" } }, "sha512-JDk8dgif51OjFoDE70+OT9ICyYr+69HlmihNwp1+Nsfbna3t5sIiCa9ZJktDmQ4/1b/rn26hIAR2uYXDMr5r0Q=="],
-
-    "recordem": ["recordem@workspace:packages/cli"],
 
     "redis-errors": ["redis-errors@1.2.0", "", {}, "sha512-1qny3OExCf0UvUV/5wpYKf2YwPcOqXzkwKKSmKHiE6ZMQs5heeE/c8eXK+PNllPvmjgAbfnsbpkGZWy8cBpn9w=="],
 
