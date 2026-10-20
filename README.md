@@ -9,7 +9,18 @@ an MCP client, or your own product through the SDK and webhooks.
 
 **Status:** early development. See [AGENTS.md](AGENTS.md) for the layout and how to run it.
 
+## Agents
+
+Your meetings, for any agent, three ways over the same API:
+
+- **MCP:** add `https://<your server's mcp>/mcp` as a remote MCP server (Claude, ChatGPT, editors). It asks you to sign
+  in, then offers `search_transcripts`, `list_meetings`, `get_meeting`, `get_transcript` and `get_notes`.
+- **CLI:** `recordem login --server <api url>`, then `recordem search "…"`, `recordem meeting <id>`,
+  `recordem transcript <id>`, `recordem notes <id>` (`--json` on any of them). Not on npm yet: from a checkout,
+  `bun install && cd packages/cli && bun link` (puts `recordem` in ~/.bun/bin), or run `bun packages/cli/src/main.ts`.
+- **Skill:** `npx skills add recordem/recordem` teaches a coding agent (Claude Code, Codex, Cursor…) to use the CLI.
+
 ## License
 
-The server (`apps/api`, `apps/auth`, `apps/worker`, `apps/web`) is [AGPL-3.0](LICENSE). The recorder and the packages
-you embed (`apps/recorder`, `packages/*`) are MIT. See [LICENSING.md](LICENSING.md).
+The server (`apps/api`, `apps/auth`, `apps/worker`, `apps/web`, `apps/mcp`) is [AGPL-3.0](LICENSE). The recorder and
+the packages you embed (`apps/recorder`, `packages/*`) are MIT. See [LICENSING.md](LICENSING.md).

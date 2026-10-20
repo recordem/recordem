@@ -2,9 +2,9 @@
 
 | Path | License | Why |
 |------|---------|-----|
-| `apps/api`, `apps/auth`, `apps/worker`, `apps/web` | AGPL-3.0 (`LICENSE`) | Anyone may self-host or modify; whoever offers a modified server as a service publishes the changes |
+| `apps/api`, `apps/auth`, `apps/worker`, `apps/web`, `apps/mcp` | AGPL-3.0 (`LICENSE`) | Anyone may self-host or modify; whoever offers a modified server as a service publishes the changes |
 | `apps/recorder` | MIT | A desktop client people install; free to fork or embed |
-| `packages/contract`, `packages/sdk`, `packages/cli` | MIT | Integrations must not inherit the AGPL |
+| `packages/contract`, `packages/sdk`, `packages/cli`, `skills` | MIT | Integrations must not inherit the AGPL |
 
 Each MIT path carries its own `LICENSE` file and `"license": "MIT"` in its manifest. A file's license is the one of
 the folder it lives in.

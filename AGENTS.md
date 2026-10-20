@@ -10,10 +10,13 @@ apps/auth/          identity provider: better-auth, organizations (= workspaces)
 apps/api/           Hono + @hono/zod-openapi: REST (/v1) and SSE (/v1/stream); verifies tokens, never logs anyone in
 apps/worker/        BullMQ workers: webhook delivery; meeting notes from a language model (any OpenAI-compatible API)
 apps/web/           portal (Vite + React): calendar, meeting page, live transcript; a client of packages/sdk
+apps/mcp/           MCP server for agents (streamable HTTP, /mcp): an OAuth protected resource, a client of packages/sdk
 apps/recorder/      macOS menu-bar recorder (Tauri 2, Rust): detects calls, records, transcribes locally (see its README)
 packages/contract/  zod schemas + route definitions → openapi.json
 packages/sdk/       TypeScript client: types generated from openapi.json (`bun run --filter @recordem/sdk generate`)
 packages/db/        Drizzle schema + migrations of the api database
+packages/cli/       `recordem` CLI: sign in (loopback PKCE), search, meetings, transcripts, notes; a client of packages/sdk
+skills/             agent skills (`npx skills add recordem/recordem`): how to use the CLI
 compose.yaml        Postgres and Redis for dev and self-hosting
 ```
 
@@ -31,14 +34,15 @@ compose.yaml        Postgres and Redis for dev and self-hosting
 
 ```bash
 cp .env.example .env && docker compose up -d && bun install
-bun run db:migrate && bun run dev        # auth :39410, api :39411
+bun run db:migrate && bun run dev        # auth :39410, api :39411, mcp :39414
 bun run smoke                            # OAuth sign-up → token → record a call → read it back → isolation
+bun run smoke:agents                     # search, the CLI's sign-in and commands, the MCP server's OAuth and tools
 ```
 
 The portal runs on https (a self-signed cert in `apps/web/.cert/`): OAuth refuses plain-http redirect URIs off
 loopback. Its dev server proxies `/v1`, `/files` and the token endpoint (`/idp`) so the browser sees one origin.
 
-Ports are uncommon on purpose (auth 39410, api 39411, web 39412; Postgres 39420, Redis 39421).
+Ports are uncommon on purpose (auth 39410, api 39411, web 39412, mcp 39414; Postgres 39420, Redis 39421).
 
 ## License
 
