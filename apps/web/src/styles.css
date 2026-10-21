@@ -139,19 +139,37 @@ button.icon:hover, button.icon[aria-expanded="true"] { background: var(--soft); 
 
 .top-actions { display: flex; align-items: center; gap: 12px; }
 .settings { max-width: 720px; }
-.settings h1 { font-size: 22px; margin-bottom: 8px; }
-.settings section { margin-top: 32px; }
-.settings h2 { font-size: 17px; }
+.settings h1 { font-size: 22px; margin-bottom: 4px; }
+.settings .lead { margin: 0 0 8px; }
+.settings section { margin-top: 28px; }
+.settings h2 { font-size: 17px; margin: 0 0 2px; }
+.settings h2 + p { margin: 0; }
+.settings :is(p, span, div).small { padding: 0; }
 .settings code { font-size: 12.5px; background: var(--soft); padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere; }
-.creds { list-style: none; padding: 0; margin: 12px 0; border-top: 1px solid var(--line); }
-.creds li { display: grid; grid-template-columns: 1fr auto; column-gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.section-head { display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; }
+.section-head button { flex: none; }
+.creds { list-style: none; padding: 0; margin: 14px 0 0; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); overflow: hidden; }
+.creds li { display: grid; grid-template-columns: 1fr auto; column-gap: 12px; row-gap: 6px; padding: 12px 14px; }
+.creds li + li { border-top: 1px solid var(--line); }
 .creds li > div { grid-column: 1; }
-.creds li > button { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
-.creds li.revoked { opacity: 0.55; }
-.secret { margin: 12px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--now); display: grid; gap: 8px; }
+.creds li > button { grid-column: 2; grid-row: 1 / span 3; align-self: center; }
+.creds li.off { opacity: 0.55; }
+.perms { display: flex; flex-wrap: wrap; gap: 4px; }
+.perms span { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--soft); color: var(--muted); }
+.empty { margin: 14px 0 0; padding: 16px; border: 1px dashed var(--line); border-radius: 12px; text-align: center; }
+.secret { margin: 14px 0 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--now); display: grid; gap: 8px; }
 .secret p { margin: 0; }
-.secret div { display: grid; grid-template-columns: 110px 1fr auto; gap: 8px; align-items: center; }
-.make { display: grid; gap: 8px; margin-top: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
-.make input:not([type="checkbox"]) { font: inherit; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); }
-.make label { font-size: 14px; display: flex; gap: 8px; align-items: center; }
-@media (max-width: 520px) { .secret div { grid-template-columns: 1fr; } }
+.secret div { display: grid; grid-template-columns: 80px 1fr auto; gap: 8px; align-items: center; }
+.secret div:last-child { display: block; }
+.make { display: grid; gap: 14px; margin-top: 14px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.make .field { display: grid; gap: 6px; font-size: 14px; font-weight: 600; }
+.make input:not([type="checkbox"]) { font: inherit; font-weight: 400; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); }
+.make fieldset { border: 0; margin: 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; }
+.make legend { font-size: 14px; font-weight: 600; margin-bottom: 6px; padding: 0; }
+.make .perm { font-size: 14px; display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; cursor: pointer; }
+.make .perm input { margin-top: 4px; }
+.make .perm > span { display: grid; }
+.advanced { margin-top: 36px; border-top: 1px solid var(--line); padding-top: 16px; }
+.advanced summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+.advanced section { margin-top: 16px; }
+@media (max-width: 520px) { .secret div { grid-template-columns: 1fr; } .make fieldset { grid-template-columns: 1fr; } .section-head { flex-direction: column; gap: 8px; } }
