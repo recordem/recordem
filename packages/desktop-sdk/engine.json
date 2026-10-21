@@ -1,5 +1,5 @@
 {
-  "version": "0.1.0",
+  "version": "0.1.1",
   "url": "https://github.com/recordem/recordem/releases/download/desktop-v{version}/{file}",
   "files": {
     "darwin-arm64": {

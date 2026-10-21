@@ -34,7 +34,7 @@ for name in recordem-desktop recordem-parakeet; do
 done
 
 # A bare executable can't be stapled: notarizing records it with Apple, and Gatekeeper checks online.
-ditto -c -k "$OUT"/recordem-desktop-darwin-arm64 "$OUT"/recordem-parakeet-darwin-arm64 "$OUT/notarize.zip"
+(cd "$OUT" && /usr/bin/zip -q notarize.zip recordem-desktop-darwin-arm64 recordem-parakeet-darwin-arm64)
 xcrun notarytool submit "$OUT/notarize.zip" "${NOTARY[@]}" --wait --timeout 30m | tee "$OUT/notary.log"
 grep -q "status: Accepted" "$OUT/notary.log" || { echo "notarization failed: see $OUT/notary.log" >&2; exit 1; }
 rm "$OUT/notarize.zip"
