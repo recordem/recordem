@@ -1,6 +1,6 @@
 // Settings: keys for the workspace's own apps, e.g. a backend that records calls on its users' behalf (the Desktop SDK).
-// Keys (API keys) are long-lived Bearer tokens; the advanced kind (machine clients) trades an id and secret for 1 h
-// tokens (client_credentials). Either is made in a dialog and shown once. Only the workspace's owners and admins see
+// A key (API key) is a long-lived Bearer token, made in a dialog and shown once. Machine clients (client_credentials)
+// stay in the API for policies that forbid long-lived keys, but not here. Only the workspace's owners and admins see
 // this page work.
 import type { components } from "@recordem/sdk";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -9,7 +9,6 @@ import { signIn } from "./auth";
 import { link } from "./router";
 
 type ApiKey = components["schemas"]["ApiKey"];
-type MachineClient = components["schemas"]["MachineClient"];
 type Scope = ApiKey["scopes"][number];
 type Make = (name: string, scopes: Scope[]) => Promise<[string, string][]>;
 
@@ -31,17 +30,15 @@ const date = (iso: string) => {
 
 export function Settings() {
   const [keys, setKeys] = useState<ApiKey[] | null>(null);
-  const [clients, setClients] = useState<MachineClient[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [needsScope, setNeedsScope] = useState(false);
-  const [making, setMaking] = useState<"key" | "credential" | null>(null);
+  const [making, setMaking] = useState(false);
   const [showRevoked, setShowRevoked] = useState(false);
 
   const load = useCallback(async () => {
-    const [k, c] = await Promise.all([api.GET("/v1/api-keys"), api.GET("/v1/machine-clients")]);
-    const e = k.error ?? c.error;
-    if (e) { setNeedsScope(e.error === "insufficient_scope"); setError(e.message); return; }
-    setKeys(k.data!.items); setClients(c.data!.items); setError(null);
+    const k = await api.GET("/v1/api-keys");
+    if (k.error) { setNeedsScope(k.error.error === "insufficient_scope"); setError(k.error.message); return; }
+    setKeys(k.data.items); setError(null);
   }, []);
   useEffect(() => { void load(); }, [load]);
 
@@ -49,11 +46,6 @@ export function Settings() {
     const r = await api.POST("/v1/api-keys", { body: { name, scopes } });
     if (r.error) throw new Error(r.error.message);
     await load(); return [["Key", r.data.key]];
-  };
-  const makeCredential: Make = async (name, scopes) => {
-    const r = await api.POST("/v1/machine-clients", { body: { name, scopes } });
-    if (r.error) throw new Error(r.error.message);
-    await load(); return [["ID", r.data.client_id], ["Secret", r.data.client_secret], ["Token URL", r.data.token_endpoint]];
   };
   const active = keys?.filter((k) => !k.revoked_at) ?? [];
   const revoked = keys?.filter((k) => k.revoked_at) ?? [];
@@ -70,74 +62,44 @@ export function Settings() {
           ? <p className="muted">To manage keys, sign in again. <button className="ghost small" onClick={() => signIn("/settings")}>Sign in</button></p>
           : <p className="error">{error}</p>)}
         {!keys && !error && <p className="muted">Loading…</p>}
-        {keys && clients && (
-          <>
-            <section className="card">
-              <header>
-                <div>
-                  <h2>Keys</h2>
-                  <p className="muted">Let your own apps record calls and read meetings in this workspace.</p>
-                </div>
-                {active.length > 0 && <button onClick={() => setMaking("key")}>New key</button>}
-              </header>
-              {active.length > 0 ? (
-                <ul className="creds">
-                  {active.map((k) => (
-                    <Item key={k.id} name={k.name} id={`${k.prefix}…`} scopes={k.scopes}
-                      when={k.last_used_at ? `Last used ${date(k.last_used_at)}` : `Created ${date(k.created_at)}, not used yet`}
-                      action={["Revoke", async () => {
-                        if (!confirm(`Revoke "${k.name}"? The app using it stops working within a minute.`)) return;
-                        await api.DELETE("/v1/api-keys/{id}", { params: { path: { id: k.id } } }); await load();
-                      }]} />
-                  ))}
-                </ul>
-              ) : (
-                <div className="empty">
-                  <span className="empty-icon" aria-hidden>
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                      <circle cx="8" cy="15" r="4" /><path d="M10.8 12.2 20 3M16 7l3 3M14 9l2 2" /></svg>
-                  </span>
-                  <b>No keys yet</b>
-                  <p className="muted">Create one for each app, so you can turn one off without touching the others.</p>
-                  <button onClick={() => setMaking("key")}>Create a key</button>
-                </div>
-              )}
-              {revoked.length > 0 && (
-                <footer>
-                  <button className="link" onClick={() => setShowRevoked((x) => !x)}>
-                    {showRevoked ? "Hide" : "Show"} {revoked.length} revoked {revoked.length === 1 ? "key" : "keys"}
-                  </button>
-                  {showRevoked && <ul className="creds off">
-                    {revoked.map((k) => <Item key={k.id} name={k.name} id={`${k.prefix}…`} scopes={k.scopes} when={`Revoked ${date(k.revoked_at!)}`} />)}
-                  </ul>}
-                </footer>
-              )}
-            </section>
-
-            <details className="card advanced" open={clients.length > 0}>
-              <summary>
-                <div>
-                  <h2>Expiring credentials</h2>
-                  <p className="muted">Advanced. For security policies that don't allow keys that last forever.</p>
-                </div>
-              </summary>
-              <p className="muted small explain">The app trades an ID and a secret for an access token that expires after an hour (OAuth client credentials).</p>
-              {clients.length > 0 && (
-                <ul className="creds">
-                  {clients.map((c) => (
-                    <Item key={c.client_id} name={c.name} id={c.client_id} scopes={c.scopes} when={`Created ${date(c.created_at)}`}
-                      action={["Delete", async () => {
-                        if (!confirm(`Delete "${c.name}"? It gets no new tokens; the ones it has work for up to an hour.`)) return;
-                        await api.DELETE("/v1/machine-clients/{id}", { params: { path: { id: c.client_id } } }); await load();
-                      }]} />
-                  ))}
-                </ul>
-              )}
-              <div className="explain"><button className="ghost" onClick={() => setMaking("credential")}>New credential</button></div>
-            </details>
-          </>
+        {keys && (
+          <section>
+            <div className="section-head">
+              <div>
+                <h2>Keys</h2>
+                <p className="muted small">Let your own apps, like a backend, record calls and read meetings in this workspace.</p>
+              </div>
+              {active.length > 0 && <button className="small" onClick={() => setMaking(true)}>New key</button>}
+            </div>
+            {active.length > 0 ? (
+              <ul className="creds">
+                {active.map((k) => (
+                  <Item key={k.id} name={k.name} id={`${k.prefix}…`} scopes={k.scopes}
+                    when={k.last_used_at ? `Last used ${date(k.last_used_at)}` : `Created ${date(k.created_at)}, not used yet`}
+                    action={["Revoke", async () => {
+                      if (!confirm(`Revoke "${k.name}"? The app using it stops working within a minute.`)) return;
+                      await api.DELETE("/v1/api-keys/{id}", { params: { path: { id: k.id } } }); await load();
+                    }]} />
+                ))}
+              </ul>
+            ) : (
+              <div className="empty">
+                <p><b>No keys yet</b></p>
+                <p className="muted small">Create one for each app, so you can turn one off without touching the others.</p>
+                <button className="small" onClick={() => setMaking(true)}>Create a key</button>
+              </div>
+            )}
+            {revoked.length > 0 && <>
+              <button className="link" onClick={() => setShowRevoked((x) => !x)}>
+                {showRevoked ? "Hide" : "Show"} {revoked.length} revoked {revoked.length === 1 ? "key" : "keys"}
+              </button>
+              {showRevoked && <ul className="creds off">
+                {revoked.map((k) => <Item key={k.id} name={k.name} id={`${k.prefix}…`} scopes={k.scopes} when={`Revoked ${date(k.revoked_at!)}`} />)}
+              </ul>}
+            </>}
+          </section>
         )}
-        {making && <MakeDialog noun={making} make={making === "key" ? makeKey : makeCredential} onClose={() => setMaking(null)} />}
+        {making && <MakeDialog noun="key" make={makeKey} onClose={() => setMaking(false)} />}
       </main>
     </div>
   );
