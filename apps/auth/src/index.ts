@@ -81,10 +81,13 @@ app.post("/select-workspace", async (c) => {
   return next(c, await call(c, "/oauth2/continue", { postLogin: true, oauth_query: query(c) }), `/select-workspace?${query(c)}`);
 });
 
-app.get("/consent", (c) => {
+app.get("/consent", async (c) => {
   const scopes = (c.req.query("scope") ?? "").split(" ").filter(Boolean);
+  // The name the client registered with (e.g. "Recordem CLI"), not its id.
+  const id = c.req.query("client_id");
+  const name = id && (await pool.query<{ name: string | null }>(`SELECT name FROM "oauthClient" WHERE "clientId" = $1`, [id])).rows[0]?.name;
   return c.html(page("Allow access", `
-    <p><b>${esc(c.req.query("client_id") ?? "An app")}</b> wants to:</p>
+    <p><b>${esc(name || "An app")}</b> wants to:</p>
     <ul>${scopes.map((s) => `<li>${esc(SCOPES[s as keyof typeof SCOPES] ?? s)}</li>`).join("")}</ul>
     <form method="post" action="/consent?${query(c)}">
       <button name="accept" value="yes">Allow</button> <button name="accept" value="no" class="ghost">Deny</button>
