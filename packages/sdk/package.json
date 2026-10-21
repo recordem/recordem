@@ -1,6 +1,6 @@
 {
   "name": "@recordem/sdk",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "license": "MIT",
   "description": "TypeScript client of the Recordem API: meetings, recordings, transcripts, notes, search, webhooks",

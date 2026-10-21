@@ -72,7 +72,7 @@
     },
     "packages/cli": {
       "name": "@recordem/cli",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "bin": {
         "recordem": "./dist/recordem.js",
       },
@@ -106,7 +106,7 @@
     },
     "packages/sdk": {
       "name": "@recordem/sdk",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "openapi-fetch": "0.17.0",
       },
