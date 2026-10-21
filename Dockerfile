@@ -11,12 +11,15 @@ COPY packages/contract/package.json packages/contract/
 COPY packages/db/package.json packages/db/
 COPY packages/sdk/package.json packages/sdk/
 COPY packages/cli/package.json packages/cli/
+COPY packages/desktop-sdk/package.json packages/desktop-sdk/engine.json packages/desktop-sdk/
+COPY packages/desktop-sdk/scripts packages/desktop-sdk/scripts
 COPY apps/auth/package.json apps/auth/
 COPY apps/api/package.json apps/api/
 COPY apps/worker/package.json apps/worker/
 COPY apps/web/package.json apps/web/
 COPY apps/mcp/package.json apps/mcp/
-RUN bun install --frozen-lockfile
+# The Desktop SDK is a workspace too; its engine (macOS) is not for this image.
+RUN RECORDEM_DESKTOP_SKIP_DOWNLOAD=1 bun install --frozen-lockfile
 COPY packages packages
 COPY apps/web apps/web
 RUN cd apps/web && AUTH_URL=$AUTH_URL API_URL=$API_URL VITE_API_BASE=$API_URL VITE_TOKEN_URL=$AUTH_URL/api/auth/oauth2/token bunx vite build
@@ -28,12 +31,15 @@ COPY packages/contract/package.json packages/contract/
 COPY packages/db/package.json packages/db/
 COPY packages/sdk/package.json packages/sdk/
 COPY packages/cli/package.json packages/cli/
+COPY packages/desktop-sdk/package.json packages/desktop-sdk/engine.json packages/desktop-sdk/
+COPY packages/desktop-sdk/scripts packages/desktop-sdk/scripts
 COPY apps/auth/package.json apps/auth/
 COPY apps/api/package.json apps/api/
 COPY apps/worker/package.json apps/worker/
 COPY apps/web/package.json apps/web/
 COPY apps/mcp/package.json apps/mcp/
-RUN bun install --frozen-lockfile
+# The Desktop SDK is a workspace too; its engine (macOS) is not for this image.
+RUN RECORDEM_DESKTOP_SKIP_DOWNLOAD=1 bun install --frozen-lockfile
 COPY packages packages
 COPY apps/auth apps/auth
 COPY apps/api apps/api
