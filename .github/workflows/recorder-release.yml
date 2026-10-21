@@ -46,7 +46,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: apps/recorder/src-tauri
+          workspaces: apps/recorder
       - name: Tauri CLI
         run: command -v cargo-tauri || cargo install tauri-cli --version "^2" --locked
 
@@ -80,7 +80,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.check.outputs.version }}
         run: |
-          gh release create "v$VERSION" "apps/recorder/src-tauri/target/release/dist/Recordem-$VERSION.dmg" \
+          gh release create "v$VERSION" "apps/recorder/target/release/dist/Recordem-$VERSION.dmg" \
             --title "Recordem $VERSION" --generate-notes --target "$GITHUB_SHA"
 
       - uses: actions/upload-artifact@v4
@@ -88,8 +88,8 @@ jobs:
         with:
           name: recorder-${{ needs.check.outputs.version }}
           path: |
-            apps/recorder/src-tauri/target/release/dist/*.dmg
-            apps/recorder/src-tauri/target/release/dist/notary.log
+            apps/recorder/target/release/dist/*.dmg
+            apps/recorder/target/release/dist/notary.log
           if-no-files-found: ignore
 
       - name: Remove the signing keychain

@@ -1,0 +1,126 @@
+name: Publish packages
+# npm packages, by tag; the version in the tag must be the one in the package's package.json.
+#   sdk-v0.2.0          → @recordem/sdk
+#   cli-v0.2.0          → @recordem/cli
+#   desktop-v0.2.0      → the engine (signed, notarized) as GitHub release desktop-v0.2.0, then @recordem/desktop-sdk
+#                         with that release's checksums in engine.json
+# npm trusts this workflow (Trusted Publisher, set per package on npmjs.com: repository recordem/recordem, workflow
+# publish.yml), so no npm token is stored; each version is published with provenance.
+# Secrets for the engine: DEVELOPER_ID_P12 (base64) + DEVELOPER_ID_P12_PASSWORD, APPLE_ID + APPLE_APP_PASSWORD +
+# APPLE_TEAM_ID, as in recorder-release.yml.
+on:
+  push:
+    tags: ['sdk-v*', 'cli-v*', 'desktop-v*']
+
+permissions:
+  contents: write   # the engine's GitHub release
+  id-token: write   # npm trusted publishing
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      dir: ${{ steps.p.outputs.dir }}
+      version: ${{ steps.p.outputs.version }}
+      engine: ${{ steps.p.outputs.engine }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: p
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"; version="${tag#*-v}"
+          case "$tag" in
+            sdk-v*) dir=packages/sdk; engine=false ;;
+            cli-v*) dir=packages/cli; engine=false ;;
+            desktop-v*) dir=packages/desktop-sdk; engine=true ;;
+            *) echo "unknown tag $tag"; exit 1 ;;
+          esac
+          have=$(jq -r .version "$dir/package.json")
+          [ "$have" = "$version" ] || { echo "$tag, but $dir/package.json is $have"; exit 1; }
+          { echo "dir=$dir"; echo "version=$version"; echo "engine=$engine"; } >> "$GITHUB_OUTPUT"
+
+  engine:
+    needs: plan
+    if: needs.plan.outputs.engine == 'true'
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/recorder
+
+      - name: Signing keychain
+        env:
+          P12: ${{ secrets.DEVELOPER_ID_P12 }}
+          P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KC="$RUNNER_TEMP/signing.keychain-db"; KC_PASS=$(openssl rand -hex 16)
+          echo "$P12" | base64 --decode > "$RUNNER_TEMP/devid.p12"
+          security create-keychain -p "$KC_PASS" "$KC"
+          security set-keychain-settings -lut 3600 "$KC"
+          security unlock-keychain -p "$KC_PASS" "$KC"
+          security import "$RUNNER_TEMP/devid.p12" -k "$KC" -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KC_PASS" "$KC" >/dev/null
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/devid.p12"
+          security find-identity -v -p codesigning "$KC" | grep "Developer ID Application"
+
+      - name: Build, sign, notarize
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: apps/recorder/scripts/desktop-release.sh
+
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd apps/recorder/target/release/desktop-dist
+          gh release create "$GITHUB_REF_NAME" recordem-desktop-darwin-arm64 recordem-parakeet-darwin-arm64 SHA256SUMS \
+            --title "Recordem Desktop SDK engine ${{ needs.plan.outputs.version }}" --generate-notes --target "$GITHUB_SHA"
+
+      - name: Remove the signing keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
+
+  npm:
+    needs: [plan, engine]
+    if: always() && needs.plan.result == 'success' && (needs.engine.result == 'success' || needs.engine.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: npm install -g npm@latest   # trusted publishing needs npm 11.5.1 or later
+      - run: bun install --frozen-lockfile
+        env:
+          RECORDEM_DESKTOP_SKIP_DOWNLOAD: '1'
+
+      # The engine's checksums go into the published engine.json (not into git): the package checks what it downloads.
+      - name: Engine checksums
+        if: needs.plan.outputs.engine == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh release download "$GITHUB_REF_NAME" -p SHA256SUMS -D "$RUNNER_TEMP"
+          cd packages/desktop-sdk
+          jq --arg v "$VERSION" \
+             --arg d "$(awk '$2=="recordem-desktop-darwin-arm64"{print $1}' "$RUNNER_TEMP/SHA256SUMS")" \
+             --arg p "$(awk '$2=="recordem-parakeet-darwin-arm64"{print $1}' "$RUNNER_TEMP/SHA256SUMS")" \
+             '.version=$v | .files["darwin-arm64"]["recordem-desktop"]=$d | .files["darwin-arm64"]["recordem-parakeet"]=$p' \
+             engine.json > engine.tmp && mv engine.tmp engine.json
+          jq -e '.files["darwin-arm64"] | all(. != "")' engine.json
+          cat engine.json
+
+      - name: Publish
+        working-directory: ${{ needs.plan.outputs.dir }}
+        run: npm publish --access public
