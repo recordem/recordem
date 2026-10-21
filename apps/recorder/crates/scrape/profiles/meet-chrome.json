@@ -1,6 +1,6 @@
 {
   "id": "meet-chrome",
-  "revision": 8,
+  "revision": 9,
   "apps": [
     "com.google.Chrome",
     "company.thebrowser.Browser",
@@ -9,7 +9,7 @@
   ],
   "platform": "google_meet",
   "links": [
-    "^https://meet\\.google\\.com/[a-z]{3}-[a-z]{4}-[a-z]{3}"
+    "^https://meet\\.google\\.com/(meet/)?[a-z]{3}-[a-z]{4}-[a-z]{3}"
   ],
   "self_mic": {
     "in": "window",

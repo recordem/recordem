@@ -1,12 +1,12 @@
 {
   "id": "meet-safari",
-  "revision": 1,
+  "revision": 2,
   "apps": [
     "com.apple.Safari"
   ],
   "platform": "google_meet",
   "links": [
-    "^https://meet\\.google\\.com/[a-z]{3}-[a-z]{4}-[a-z]{3}"
+    "^https://meet\\.google\\.com/(meet/)?[a-z]{3}-[a-z]{4}-[a-z]{3}"
   ],
   "tiles": [],
   "name": []
