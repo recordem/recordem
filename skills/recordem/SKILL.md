@@ -1,13 +1,14 @@
 ---
 name: recordem
-description: Read the user's recorded meetings with the `recordem` CLI — find meetings by date, title or attendee, search what was said or decided, and read notes (summary, action items, topics) and transcripts with speaker names and timestamps. Use when the user asks about a past call or meeting, what someone said, what was decided, action items, or wants a meeting summarized, quoted or compared.
+description: The user's recorded meetings through the `recordem` CLI — find meetings by date, title or attendee, search what was said or decided, read notes (summary, action items, topics) and transcripts with speaker names and timestamps, and rename a meeting. Use when the user asks about a past call or meeting, what someone said, what was decided, action items, wants a meeting summarized, quoted or compared, or wants one titled.
 ---
 
 # Recordem
 
 Recordem keeps the user's meetings: who was in them, what was said (a transcript per recording, with speaker names)
 and notes written from each transcript after the call (summary, action items with owners, topics). The `recordem` CLI
-reads them. It only reads; it never changes or deletes anything.
+reads them, and can give a meeting a title; it never deletes anything. `recordem --help` lists the commands of the
+installed version: when a command or flag here doesn't work, trust `--help`.
 
 ## Setup
 
@@ -16,7 +17,11 @@ Check first: `recordem whoami`. Exit code 3 means not signed in.
 - Not installed: `npm i -g @recordem/cli` (Node 22+), or run `npx -y @recordem/cli` wherever this skill says `recordem`.
 - Not signed in: ask the user to run `recordem login --server <their API URL>` themselves (it opens a browser; on a
   machine without one they paste back the URL the browser ends on). Don't try to complete the sign-in for them.
-- `RECORDEM_URL` picks the server, `RECORDEM_TOKEN` a token to use instead of the stored sign-in.
+- Several servers (e.g. a dev one and production): each is signed in to once; `recordem server` lists them and marks
+  the current one, `recordem server <api url>` switches. `--server <url>` on one command, or `RECORDEM_URL` in a
+  shell, picks one without switching. `RECORDEM_TOKEN` is a token to use instead of the stored sign-in.
+- Exit code 3 with "run `recordem login` again" means the sign-in predates a permission the command needs (renaming
+  needs `meetings:write`): ask the user to sign in again.
 
 ## Find the meeting
 
@@ -54,6 +59,15 @@ recordem transcript <recording or meeting id> --since 3:50 --until 6:30
 Transcript lines are `[m:ss] Speaker: text`, `[m:ss]` counted from the recording's start (printed in its header), not
 a time of day. Speakers are named from the call app or inferred; "Recorder" is whoever recorded, "Speaker N" a voice
 nobody named. Names can be wrong: when an answer hinges on who said something, say how sure it is.
+
+## Change it
+
+```bash
+recordem rename <meeting id> Q4 roadmap review   # the rest of the line is the title
+recordem rename <meeting id> --clear             # back to untitled
+```
+
+Rename only when the user asks, or after proposing a title and hearing yes; say the old and new title.
 
 ## Answering
 

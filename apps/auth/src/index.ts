@@ -81,17 +81,41 @@ app.post("/select-workspace", async (c) => {
   return next(c, await call(c, "/oauth2/continue", { postLogin: true, oauth_query: query(c) }), `/select-workspace?${query(c)}`);
 });
 
+/** What each scope lets an app do, in its user's words. `openid` and `profile` read as one line. */
+const CONSENT: Record<string, string> = {
+  profile: "Know your name and email",
+  "meetings:read": "See your meetings and recordings",
+  "meetings:write": "Rename, edit and record meetings",
+  "transcripts:read": "Read transcripts and notes",
+  "audio:read": "Download the audio of recordings",
+  "calendars:read": "See your connected calendars",
+  "claims:write": "Link meetings to its own records",
+  "webhooks:manage": "Get notified when meetings change",
+  "credentials:manage": "Create and revoke the workspace's keys",
+  offline_access: "Stay signed in until you sign out",
+};
+
 app.get("/consent", async (c) => {
-  const scopes = (c.req.query("scope") ?? "").split(" ").filter(Boolean);
-  // The name the client registered with (e.g. "Recordem CLI"), not its id.
+  const asked = new Set((c.req.query("scope") ?? "").split(" ").filter(Boolean));
+  if (asked.has("openid")) asked.add("profile");
+  const lines = Object.keys(CONSENT).filter((s) => asked.delete(s)).map((s) => CONSENT[s]!);
+  lines.push(...[...asked].filter((s) => s !== "openid"));   // a scope this page has no words for: as it is
+  // The name the client registered with (e.g. "Recordem CLI"), not its id; who is signing in, and to which workspace.
   const id = c.req.query("client_id");
   const name = id && (await pool.query<{ name: string | null }>(`SELECT name FROM "oauthClient" WHERE "clientId" = $1`, [id])).rows[0]?.name;
+  const s = await auth.api.getSession({ headers: c.req.raw.headers });
+  const ws = s?.session.activeOrganizationId
+    ? ((await auth.api.listOrganizations({ headers: c.req.raw.headers })) ?? []).find((o: { id: string }) => o.id === s.session.activeOrganizationId)?.name
+    : undefined;
   return c.html(page("Allow access", `
-    <p><b>${esc(name || "An app")}</b> wants to:</p>
-    <ul>${scopes.map((s) => `<li>${esc(SCOPES[s as keyof typeof SCOPES] ?? s)}</li>`).join("")}</ul>
-    <form method="post" action="/consent?${query(c)}">
-      <button name="accept" value="yes">Allow</button> <button name="accept" value="no" class="ghost">Deny</button>
-    </form>`, c.req.query("error")));
+    <p class="lead"><b>${esc(name || "An app")}</b> wants to use your Recordem account${ws ? ` in <b>${esc(ws)}</b>` : ""}.</p>
+    ${s ? `<p class="muted small">Signed in as ${esc(s.user.email)}</p>` : ""}
+    <p class="muted">It will be able to:</p>
+    <ul class="perms">${lines.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>
+    <form method="post" action="/consent?${query(c)}" class="buttons">
+      <button name="accept" value="no" class="ghost">Deny</button><button name="accept" value="yes">Allow</button>
+    </form>
+    <p class="muted small">Only allow apps you trust.</p>`, c.req.query("error")));
 });
 
 app.post("/consent", async (c) => {

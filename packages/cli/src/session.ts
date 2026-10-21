@@ -10,13 +10,14 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 
-export const SCOPES = "openid profile offline_access meetings:read transcripts:read audio:read";
+export const SCOPES = "openid profile offline_access meetings:read meetings:write transcripts:read audio:read";
 
 const DIR = join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "recordem");
 const FILE = join(DIR, "credentials.json");
 
 type Tokens = { access_token: string; refresh_token?: string; expires_at: number };
-type Server = { client_id: string; token_url: string; tokens?: Tokens };
+/** `scope`: what the client registered for; a CLI asking for more registers again. */
+type Server = { client_id: string; scope?: string; token_url: string; tokens?: Tokens };
 type Store = { current?: string; servers: Record<string, Server> };
 
 export class AuthError extends Error {}
@@ -40,6 +41,22 @@ export async function server(flag?: string) {
   const url = flag ?? process.env.RECORDEM_URL ?? (await load()).current;
   if (!url) throw new AuthError("no server: pass --server <api url> or set RECORDEM_URL (e.g. https://api.recordem.dev)");
   return url.replace(/\/+$/, "");
+}
+
+/** The servers signed in to before, and the one commands use when nothing else picks one. */
+export async function known() {
+  const s = await load();
+  return { current: s.current, servers: Object.entries(s.servers).map(([url, v]) => ({ url, signed_in: !!v.tokens })) };
+}
+
+/** Makes `url` the current server; one never signed in to needs `recordem login --server` instead. */
+export async function use(url: string) {
+  const s = await load();
+  const u = url.replace(/\/+$/, "");
+  if (!s.servers[u]?.tokens) throw new AuthError(`not signed in to ${u}: run \`recordem login --server ${u}\``);
+  s.current = u;
+  await save(s);
+  return u;
 }
 
 /** Where the API's identity provider is, from the API's own openapi.json. */
@@ -81,7 +98,7 @@ export async function login(api: string, log: (s: string) => void) {
   });
   await new Promise<void>((r) => http.listen(0, "127.0.0.1", r));
   const redirect = `http://127.0.0.1:${(http.address() as AddressInfo).port}/callback`;
-  let client = store.servers[api]?.client_id;
+  let client = store.servers[api]?.scope === SCOPES ? store.servers[api].client_id : undefined;
   if (!client) {
     if (!d.registration) throw new AuthError("this server doesn't let clients register themselves");
     const res = await fetch(d.registration, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
@@ -106,7 +123,7 @@ export async function login(api: string, log: (s: string) => void) {
   const tokens = await tokenRequest(d.tokenUrl, {
     grant_type: "authorization_code", code: back.searchParams.get("code") ?? "", redirect_uri: redirect, client_id: client, code_verifier: verifier, resource: api,
   });
-  store.servers[api] = { client_id: client, token_url: d.tokenUrl, tokens };
+  store.servers[api] = { client_id: client, scope: SCOPES, token_url: d.tokenUrl, tokens };
   store.current = api;
   await save(store);
 }

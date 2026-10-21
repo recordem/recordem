@@ -14,5 +14,10 @@ export const page = (title: string, body: string, error?: string) => `<!doctype 
   button { font: inherit; padding: 9px 14px; border: 0; border-radius: 8px; background: var(--fg); color: var(--bg); cursor: pointer; }
   button.ghost { background: transparent; color: var(--fg); border: 1px solid var(--line); }
   .error { color: var(--accent); margin: 0 0 12px; }
+  p { margin: 0 0 12px; } .muted { color: var(--muted); } .small { font-size: 13px; } .lead { font-size: 16px; }
+  .perms { list-style: none; margin: 0 0 20px; padding: 4px 14px; border: 1px solid var(--line); border-radius: 10px; }
+  .perms li { padding: 9px 0 9px 26px; position: relative; } .perms li + li { border-top: 1px solid var(--line); }
+  .perms li::before { content: "✓"; position: absolute; left: 2px; color: var(--muted); }
+  form.buttons { grid-template-columns: 1fr 1fr; margin-bottom: 16px; }
 </style></head>
 <body><main><h1><span>●</span> ${title}</h1>${error ? `<p class="error">${error.replace(/</g, "&lt;")}</p>` : ""}${body}</main></body></html>`;

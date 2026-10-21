@@ -1,6 +1,6 @@
 {
   "name": "@recordem/cli",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "license": "MIT",
   "description": "Recordem from the terminal: find meetings, search what was said, read transcripts and notes",

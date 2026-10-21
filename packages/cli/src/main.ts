@@ -3,7 +3,7 @@
 // @recordem/sdk; --json prints what the API answered. Exit codes: 0 ok, 1 failed, 2 wrong usage, 3 not signed in (or
 // the token lacks a scope), 4 not found.
 import { clock, createClient, noNotes, notesText, transcriptText, type Client, type MeetingDetail, type Notes, type Recording } from "@recordem/sdk";
-import { AuthError, login, logout, server, token } from "./session";
+import { AuthError, known, login, logout, server, token, use } from "./session";
 
 const HELP = `recordem — meetings, transcripts and notes from Recordem
 
@@ -12,6 +12,7 @@ Usage: recordem <command> [args] [--json] [--server <api url>]
   login                       sign in (opens a browser, or paste the URL it ends on)
   logout                      forget this server's tokens
   whoami                      who you are signed in as, and in which workspace
+  server [api url]            the servers signed in to, and which is current; with a url, switch to it
   meetings                    meetings, newest first   [--from <date>] [--to <date>] [--limit n] [--cursor c]
   meeting <meeting id>        a meeting, its recordings and their notes
   search <words…>             find what was said or noted, or meetings by title or attendee
@@ -22,6 +23,7 @@ Usage: recordem <command> [args] [--json] [--server <api url>]
   notes <id>                  summary, action items and topics of a recording (or of each recording of a meeting):
                               read these first; the transcript is for quotes and detail
   audio <recording id>        a short-lived URL of the recording's audio   [--kind mix|mic_hq]
+  rename <meeting id> <title…> give a meeting a title   [--clear: remove it]
 
 Dates: 2026-10-20, 2026-10-20T14:00:00-03:00, today, yesterday, or 7d (7 days ago).
 Server: --server, else RECORDEM_URL, else the last one signed in to. RECORDEM_TOKEN, when set, is used as the token.`;
@@ -77,7 +79,10 @@ async function ok<T>(p: Promise<{ data?: T; error?: unknown; response: Response 
   if (data !== undefined && response.ok) return data;
   const msg = (error as { message?: string } | undefined)?.message ?? response.statusText;
   if (response.status === 401) throw new Exit(`not signed in: ${msg} (run \`recordem login\`)`, 3);
-  if (response.status === 403) throw new Exit(`not allowed: ${msg}`, 3);
+  if (response.status === 403) {
+    const more = (error as { error?: string } | undefined)?.error === "insufficient_scope" ? " (run `recordem login` again to allow it)" : "";
+    throw new Exit(`not allowed: ${msg}${more}`, 3);
+  }
   if (response.status === 404) throw new Exit(msg, 4);
   throw new Exit(`${response.status}: ${msg}`, 1);
 }
@@ -108,6 +113,15 @@ async function main(argv: string[]) {
   const json = flags.json === true;
   const out = (data: unknown, human: () => string) => console.log(json ? JSON.stringify(data, null, 2) : human());
   if (!cmd || flags.help || cmd === "help") return console.log(HELP);
+  if (cmd === "server") {
+    if (rest[0]) return void console.error(`Now using ${await use(rest[0])}.`);
+    const k = await known();
+    const now = process.env.RECORDEM_URL?.replace(/\/+$/, "") ?? k.current;
+    return out({ ...k, current: now }, () => k.servers.length
+      ? k.servers.map((x) => `${x.url === now ? "*" : " "} ${x.url}${x.signed_in ? "" : "  (signed out)"}`).join("\n")
+        + (process.env.RECORDEM_URL ? "\n(RECORDEM_URL picks the server in this shell)" : "")
+      : "No servers yet: recordem login --server <api url>");
+  }
   const base = await server(text(flags.server));
   if (cmd === "login") {
     await login(base, (s) => console.error(s));
@@ -184,6 +198,13 @@ async function main(argv: string[]) {
       if (kind !== "mix" && kind !== "mic_hq") throw new Exit("--kind is mix or mic_hq", 2);
       const u = await ok(api.GET("/v1/recordings/{id}/tracks/{kind}/url", { params: { path: { id: need("a recording id"), kind } } }));
       return out(u, () => u.url);
+    }
+    case "rename": {
+      const id = need("a meeting id");
+      const title = flags.clear === true ? null : rest.slice(1).join(" ").trim();
+      if (title === "") throw new Exit("rename needs a title (or --clear); see recordem --help", 2);
+      const m = await ok(api.PATCH("/v1/meetings/{id}", { params: { path: { id } }, body: { title } }));
+      return out(m, () => `${m.title ?? "(untitled)"}  ${m.id}`);
     }
     default:
       throw new Exit(`unknown command: ${cmd}; see recordem --help`, 2);
