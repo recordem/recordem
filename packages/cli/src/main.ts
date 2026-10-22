@@ -26,7 +26,20 @@ Usage: recordem <command> [args] [--json] [--server <api url>]
   rename <meeting id> <title…> give a meeting a title   [--clear: remove it]
 
 Dates: 2026-10-20, 2026-10-20T14:00:00-03:00, today, yesterday, or 7d (7 days ago).
-Server: --server, else RECORDEM_URL, else the last one signed in to. RECORDEM_TOKEN, when set, is used as the token.`;
+Server: --server, else RECORDEM_URL, else the last one signed in to. RECORDEM_TOKEN, when set, is used as the token.
+Exit codes: 0 ok, 1 failed, 2 wrong usage, 3 not signed in (or the token lacks a scope), 4 not found (or not yet).
+recordem <command> --help: just that command.`;
+
+/** One command's lines of HELP (its line and the more indented ones after it), with the shared footer. */
+function helpFor(cmd: string): string | undefined {
+  const lines = HELP.split("\n");
+  const start = lines.findIndex((l) => l.startsWith(`  ${cmd} `));
+  if (start < 0) return undefined;
+  let end = start + 1;
+  while (end < lines.length && /^ {3,}/.test(lines[end])) end++;
+  const footer = lines.slice(lines.findIndex((l) => l.startsWith("Dates:")), -1);
+  return [`Usage: recordem ${lines[start].trim().replace(/\s{2,}/, "   ")}`, ...lines.slice(start + 1, end), "", ...footer].join("\n");
+}
 
 class Exit extends Error {
   constructor(message: string, readonly code: number) { super(message); }
@@ -112,7 +125,9 @@ async function main(argv: string[]) {
   const [cmd, ...rest] = args;
   const json = flags.json === true;
   const out = (data: unknown, human: () => string) => console.log(json ? JSON.stringify(data, null, 2) : human());
-  if (!cmd || flags.help || cmd === "help") return console.log(HELP);
+  if (cmd === "help" && rest[0]) return console.log(helpFor(rest[0]) ?? HELP);
+  if (!cmd || cmd === "help") return console.log(HELP);
+  if (flags.help) return console.log(helpFor(cmd) ?? HELP);
   if (cmd === "server") {
     if (rest[0]) return void console.error(`Now using ${await use(rest[0])}.`);
     const k = await known();
