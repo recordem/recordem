@@ -13,6 +13,12 @@
 // Next to the report, <report>.d/<fixture>.txt holds each final transcript (and .live.txt the draft), to read what
 // changed when a number moves.
 //
+// --diarize-only skips the speech recognition (DER only, in seconds), and --set name=value changes a diarization
+// setting (DiarizationConfig: min_cluster_seconds, clustering_threshold, …) without a rebuild, to sweep one.
+//
+// --overlapping lets voices overlap, as before diarization went one voice at a time.
+// --speakers max (or exact) bounds the voices by the reference's count, as the call app's participant list could.
+//
 // --baseline compares with an earlier report and exits 1 when something got worse (DER or WER up more than a point,
 // more repeated lines, or a stage 25% slower), so a change can be kept or dropped on numbers.
 use crate::api::Segment;
@@ -30,6 +36,8 @@ const COLLAR: f64 = 0.25; // seconds around each reference boundary that aren't 
 #[derive(Serialize, Deserialize, Default, Clone)]
 struct Report {
     engine: String,
+    #[serde(default)]
+    settings: Vec<String>,
     fixtures: Vec<Scored>,
 }
 
@@ -72,6 +80,9 @@ pub fn main(args: Vec<String>) -> anyhow::Result<()> {
     let mut out = PathBuf::from("eval.json");
     let mut baseline: Option<PathBuf> = None;
     let mut live = true;
+    let mut asr = true;
+    let mut settings: Vec<String> = vec![];
+    let mut speakers: Option<String> = None;
     let mut it = args.into_iter();
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -81,23 +92,33 @@ pub fn main(args: Vec<String>) -> anyhow::Result<()> {
             "--out" => out = it.next().map(Into::into).unwrap_or(out),
             "--baseline" => baseline = it.next().map(Into::into),
             "--no-live" => live = false,
+            "--diarize-only" => (live, asr) = (false, false),
+            "--set" => settings.extend(it.next()),
+            "--speakers" => speakers = it.next(),
+            "--overlapping" => settings.push("overlapping=1".into()),
             f => fixtures.push(f.into()),
         }
     }
     anyhow::ensure!(
         !fixtures.is_empty(),
-        "usage: eval <fixture dir>... [--engine whisper] [--lang en,pt] [--data <app data dir>] [--out eval.json] [--baseline earlier.json] [--no-live]"
+        "usage: eval <fixture dir>... [--engine whisper] [--lang en,pt] [--data <app data dir>] [--out eval.json] [--baseline earlier.json] [--no-live] [--diarize-only] [--set name=value]..."
     );
     // The models the app downloaded (Recordem Dev's by default).
     crate::config::apply(&recordem_desktop::protocol::Settings { data_dir: Some(data.to_string_lossy().into()), ..Default::default() });
     anyhow::ensure!(crate::models::ready(), "no models in {}: open the app once, or pass --data", data.display());
 
-    let mut report = Report { engine: crate::asr::describe(&engine), fixtures: vec![] };
+    if let Some(b) = &speakers {
+        anyhow::ensure!(b == "max" || b == "exact", "--speakers max | exact");
+        settings.push(format!("speakers={b}"));
+    }
+    let config = diarization(&settings)?;
+    let overlapping = settings.iter().any(|s| s == "overlapping=1");
+    let mut report = Report { engine: if asr { crate::asr::describe(&engine) } else { "diarization only".into() }, settings, fixtures: vec![] };
     let texts = out.with_extension("d");
     std::fs::create_dir_all(&texts)?;
     for dir in &fixtures {
         let name = dir.file_name().map_or_else(|| dir.display().to_string(), |n| n.to_string_lossy().into());
-        match fixture(dir, &name, &engine, &langs, live, &texts) {
+        match fixture(dir, &name, &engine, &langs, live, asr, &config, speakers.as_deref(), overlapping, &texts) {
             Ok(s) => {
                 print_row(&s);
                 report.fixtures.push(s);
@@ -117,7 +138,28 @@ pub fn main(args: Vec<String>) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn fixture(dir: &Path, name: &str, engine: &str, langs: &str, live: bool, texts: &Path) -> anyhow::Result<Scored> {
+/// The default diarization settings with `name=value` overrides.
+fn diarization(settings: &[String]) -> anyhow::Result<anlg_pyannote::DiarizationConfig> {
+    let mut c = anlg_pyannote::DiarizationConfig::default();
+    for s in settings.iter().filter(|s| !s.starts_with("speakers=") && !s.starts_with("overlapping=")) {
+        let (k, v) = s.split_once('=').ok_or_else(|| anyhow::anyhow!("--set {s}: name=value"))?;
+        let f: f32 = v.parse()?;
+        match k {
+            "step_seconds" => c.step_seconds = f,
+            "min_embedding_seconds" => c.min_embedding_seconds = f,
+            "min_activity_seconds" => c.min_activity_seconds = f,
+            "clustering_threshold" => c.clustering_threshold = f,
+            "min_cluster_seconds" => c.min_cluster_seconds = f,
+            "min_duration_on" => c.min_duration_on = f,
+            "min_duration_off" => c.min_duration_off = f,
+            _ => anyhow::bail!("--set {k}: not a diarization setting"),
+        }
+    }
+    Ok(c)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn fixture(dir: &Path, name: &str, engine: &str, langs: &str, live: bool, asr: bool, config: &anlg_pyannote::DiarizationConfig, speakers: Option<&str>, overlapping: bool, texts: &Path) -> anyhow::Result<Scored> {
     let f = crate::capture::files(dir);
     let read = |p: &Path| if p.exists() { crate::capture::read(p) } else { Ok(vec![]) };
     let (mut mic, mut system) = (read(&f.mic)?, read(&f.system)?);
@@ -138,7 +180,13 @@ fn fixture(dir: &Path, name: &str, engine: &str, langs: &str, live: bool, texts:
     };
 
     let t = Instant::now();
-    let mut d = crate::diarize::Streaming::new()?;
+    let reference = Reference::read(dir)?;
+    let mut d = crate::diarize::Streaming::with(config.clone())?;
+    d.exclusive = !overlapping;
+    if let (Some(b), Some(turns)) = (speakers, &reference.turns) {
+        let n = turns.iter().map(|t| &t.speaker).collect::<std::collections::HashSet<_>>().len();
+        d.bounds = if b == "exact" { anlg_pyannote::SpeakerBounds::exact(n) } else { anlg_pyannote::SpeakerBounds { max_speakers: Some(n), ..Default::default() } };
+    }
     for chunk in system.chunks(RATE / 10) {
         d.push(chunk)?;
     }
@@ -147,7 +195,7 @@ fn fixture(dir: &Path, name: &str, engine: &str, langs: &str, live: bool, texts:
 
     let t = Instant::now();
     let progress = Arc::new(AtomicU32::new(0));
-    let segs = crate::transcribe::run(&mic, &system, Some(found.clone()), langs, "", engine, &progress)?;
+    let segs = if asr { crate::transcribe::run(&mic, &system, Some(found.clone()), langs, "", engine, &progress)? } else { vec![] };
     let final_s = t.elapsed().as_secs_f64();
 
     std::fs::write(texts.join(format!("{name}.txt")), lines(&segs))?;
@@ -155,13 +203,12 @@ fn fixture(dir: &Path, name: &str, engine: &str, langs: &str, live: bool, texts:
         std::fs::write(texts.join(format!("{name}.live.txt")), lines(l))?;
     }
 
-    let reference = Reference::read(dir)?;
     let der = reference.turns.as_ref().map(|r| {
         let d = diarization_error_rate(r, &found, COLLAR);
         Der { der: d.der(), missed: d.missed, false_alarm: d.false_alarm, confusion: d.confusion, reference_voices: d.reference_speakers }
     });
     let text = |s: &[Segment]| s.iter().map(|x| x.text.as_str()).collect::<Vec<_>>().join(" ");
-    let wer = reference.text.as_deref().map(|r| word_error_rate(r, &text(&segs)));
+    let wer = reference.text.as_deref().filter(|_| asr).map(|r| word_error_rate(r, &text(&segs)));
     let live_wer = reference.text.as_deref().zip(live_segs.as_deref()).map(|(r, l)| word_error_rate(r, &text(l)));
     let live_agreement = live_segs.as_deref().map(|l| crate::bench::agreement(&text(l), &text(&segs)));
     Ok(Scored {
@@ -334,7 +381,7 @@ fn pct(x: Option<f64>) -> String {
 
 fn print_row(s: &Scored) {
     println!(
-        "{:<28} {:>6.0}s  live {:>6}  diarize {:>5.1}s  final {:>6.1}s ({:>3.0}x)  voices {:>2}  overlap {:>5.1}s  repeated {:>3}/{:<4}  DER {:>6}  WER {:>6}  live WER {:>6}  live≈final {:>6}",
+        "{:<28} {:>6.0}s  live {:>6}  diarize {:>5.1}s  final {:>6.1}s ({:>3.0}x)  voices {:>2}/{:<2}  overlap {:>5.1}s  repeated {:>3}/{:<4}  DER {:>6}  WER {:>6}  live WER {:>6}  live≈final {:>6}",
         s.name,
         s.audio_s,
         s.live_s.map_or("—".into(), |x| format!("{x:.1}s")),
@@ -342,6 +389,7 @@ fn print_row(s: &Scored) {
         s.final_s,
         s.audio_s / s.final_s.max(1e-9),
         s.voices,
+        s.der.as_ref().map_or("?".into(), |d| d.reference_voices.to_string()),
         s.overlap_s,
         s.repeated,
         s.lines,
@@ -362,10 +410,10 @@ fn print_totals(r: &Report) {
         der.accumulate(&DerReport { total, missed: d.missed, false_alarm: d.false_alarm, confusion: d.confusion, ..Default::default() });
     }
     println!(
-        "{} fixtures, {:.0} min of audio, final pass {:.0}x real time, DER {}, repeated lines {}  ({})",
+        "{} fixtures, {:.0} min of audio, {}, DER {}, repeated lines {}  ({})",
         r.fixtures.len(),
         audio / 60.0,
-        audio / fin.max(1e-9),
+        if fin > 0.01 { format!("final pass {:.0}x real time", audio / fin) } else { format!("diarization {:.0}x real time", audio / r.fixtures.iter().map(|s| s.diarize_s).sum::<f64>().max(1e-9)) },
         if der.total > 0.0 { format!("{:.1}%", der.der() * 100.0) } else { "—".into() },
         r.fixtures.iter().map(|s| s.repeated).sum::<usize>(),
         r.engine,

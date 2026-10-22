@@ -26,7 +26,7 @@ RATE = 16_000
 DATASETS = ["diarizers-community/ami@ihm:validation", "diarizers-community/voxconverse:dev"]
 
 
-def fetch(spec: str, out: Path, limit: int) -> int:
+def fetch(spec: str, out: Path, limit: int, max_minutes: float | None) -> int:
     name, _, split = spec.partition(":")
     name, _, config = name.partition("@")
     rows = load_dataset(name, config or None, split=split or "validation", streaming=True)
@@ -42,6 +42,8 @@ def fetch(spec: str, out: Path, limit: int) -> int:
         audio = np.asarray(row["audio"]["array"], dtype=np.float32)
         if audio.ndim > 1:
             audio = audio.mean(axis=1)
+        if max_minutes and len(audio) / row["audio"]["sampling_rate"] > max_minutes * 60:
+            continue
         if row["audio"]["sampling_rate"] != RATE:
             audio = librosa.resample(audio, orig_sr=row["audio"]["sampling_rate"], target_sr=RATE)
         dir.mkdir(parents=True, exist_ok=True)
@@ -63,10 +65,11 @@ def main() -> None:
     p.add_argument("--out", type=Path, required=True)
     p.add_argument("--dataset", action="append", help=f"hub id[@config][:split]; default: {' '.join(DATASETS)}")
     p.add_argument("--limit", type=int, default=3, help="recordings per dataset")
+    p.add_argument("--max-minutes", type=float, default=None, help="skip longer recordings")
     args = p.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     for spec in args.dataset or DATASETS:
-        print(f"{spec}: {fetch(spec, args.out, args.limit)} recordings in {args.out}")
+        print(f"{spec}: {fetch(spec, args.out, args.limit, args.max_minutes)} recordings in {args.out}")
 
 
 if __name__ == "__main__":

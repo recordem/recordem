@@ -34,15 +34,22 @@ pub struct Streaming {
     embeddings: Vec<Embedded>,
     mask: Vec<f32>,
     /// One voice per frame (the default); off, overlapping voices each keep their frames, as the batch pipeline.
-    exclusive: bool,
+    pub exclusive: bool,
+    /// How many voices there can be (e.g. no more than the people the call app lists); unbounded by default.
+    pub bounds: SpeakerBounds,
 }
 
 impl Streaming {
     pub fn new() -> anyhow::Result<Self> {
+        Self::with(DiarizationConfig::default())
+    }
+
+    /// With other settings than the default (eval.rs tries them).
+    pub fn with(config: DiarizationConfig) -> anyhow::Result<Self> {
         Ok(Self {
             segmenter: Segmenter::new()?,
             embedder: anlg_embedding::EmbeddingExtractor::new()?,
-            config: DiarizationConfig::default(),
+            config,
             kept: Vec::with_capacity(2 * WINDOW_SAMPLES),
             kept_from: 0,
             next: 0,
@@ -52,6 +59,7 @@ impl Streaming {
             embeddings: vec![],
             mask: vec![0.0; WINDOW_SAMPLES],
             exclusive: true,
+            bounds: SpeakerBounds::default(),
         })
     }
 
@@ -133,7 +141,7 @@ impl Streaming {
         let vectors: Vec<Vec<f32>> = anchors.iter().map(|i| self.embeddings[*i].embedding.clone()).collect();
         let step = self.total.saturating_sub(WINDOW_SAMPLES).max(1) as f32 / self.starts.len().saturating_sub(1).max(1) as f32;
         let min_cluster = (self.config.min_cluster_seconds / (step / SAMPLE_RATE as f32).max(f32::EPSILON)).ceil() as usize;
-        let anchor_labels = clustering::cluster(&vectors, self.config.clustering_threshold, min_cluster, SpeakerBounds::default());
+        let anchor_labels = clustering::cluster(&vectors, self.config.clustering_threshold, min_cluster, self.bounds);
         let centroids = clustering::centroids(&vectors, &anchor_labels);
         let mut labels = vec![usize::MAX; self.embeddings.len()];
         for (i, label) in anchors.iter().zip(&anchor_labels) {
