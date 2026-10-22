@@ -23,6 +23,8 @@ pub trait Engine: Send {
     fn language(&mut self, audio: &[f32], langs: &[String], prev: Option<&str>) -> anyhow::Result<String>;
     /// One turn, 16 kHz mono.
     fn transcribe(&mut self, audio: &[f32], lang: &str, vocabulary: &str) -> anyhow::Result<Vec<Piece>>;
+    /// The same, word by word with each word's times (ms from the start): to give each word to whoever said it.
+    fn words(&mut self, audio: &[f32], lang: &str, vocabulary: &str) -> anyhow::Result<Vec<Word>>;
 }
 
 /// An engine by its setting: "whisper", "parakeet" (v3) or "parakeet:<model>" (v3, ultra, redux). `threads`: what
@@ -71,6 +73,27 @@ impl Whisper {
         let state = whisper_ctx()?.create_state().map_err(|e| anyhow::anyhow!("whisper: {e}"))?;
         Ok(Whisper { state, threads })
     }
+
+    fn full(&mut self, audio: &[f32], lang: &str, vocabulary: &str, token_timestamps: bool) -> anyhow::Result<()> {
+        let prompt = prompt(vocabulary);
+        let mut p = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+        p.set_language(Some(lang));
+        p.set_n_threads(self.threads as i32);
+        p.set_print_progress(false);
+        p.set_print_realtime(false);
+        p.set_print_special(false);
+        p.set_print_timestamps(false);
+        p.set_suppress_blank(true);
+        p.set_suppress_nst(true);
+        p.set_no_context(true);
+        p.set_no_speech_thold(0.6);
+        p.set_token_timestamps(token_timestamps);
+        if !prompt.is_empty() {
+            p.set_initial_prompt(&prompt);
+        }
+        self.state.full(p, audio).map_err(|e| anyhow::anyhow!("whisper: {e}"))?;
+        Ok(())
+    }
 }
 
 impl Engine for Whisper {
@@ -103,22 +126,7 @@ impl Engine for Whisper {
     }
 
     fn transcribe(&mut self, audio: &[f32], lang: &str, vocabulary: &str) -> anyhow::Result<Vec<Piece>> {
-        let prompt = prompt(vocabulary);
-        let mut p = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-        p.set_language(Some(lang));
-        p.set_n_threads(self.threads as i32);
-        p.set_print_progress(false);
-        p.set_print_realtime(false);
-        p.set_print_special(false);
-        p.set_print_timestamps(false);
-        p.set_suppress_blank(true);
-        p.set_suppress_nst(true);
-        p.set_no_context(true);
-        p.set_no_speech_thold(0.6);
-        if !prompt.is_empty() {
-            p.set_initial_prompt(&prompt);
-        }
-        self.state.full(p, audio).map_err(|e| anyhow::anyhow!("whisper: {e}"))?;
+        self.full(audio, lang, vocabulary, false)?;
         let mut out = vec![];
         for seg in self.state.as_iter() {
             let text = seg.to_str_lossy().map(|s| s.trim().to_string()).unwrap_or_default();
@@ -134,7 +142,42 @@ impl Engine for Whisper {
         }
         Ok(out)
     }
+
+    /// Words from Whisper's tokens: a token starting with a space starts a word, the others continue it. Token times
+    /// are Whisper's own estimate (centiseconds), close enough to tell whose turn a word fell in.
+    fn words(&mut self, audio: &[f32], lang: &str, vocabulary: &str) -> anyhow::Result<Vec<Word>> {
+        self.full(audio, lang, vocabulary, true)?;
+        let eot = whisper_ctx()?.token_eot();
+        let mut out: Vec<Word> = vec![];
+        for seg in self.state.as_iter() {
+            if seg.no_speech_probability() > 0.8 {
+                continue;
+            }
+            let mut open = false; // the segment's first token starts a word even without a space
+            for i in 0..seg.n_tokens() {
+                let Some(tok) = seg.get_token(i) else { continue };
+                if tok.token_id() >= eot {
+                    continue; // timestamps and other special tokens
+                }
+                let text = tok.to_str_lossy().map(|t| t.into_owned()).unwrap_or_default();
+                let d = tok.token_data();
+                let (start_ms, end_ms) = ((d.t0.max(0) as u64) * 10, (d.t1.max(d.t0).max(0) as u64) * 10);
+                match out.last_mut() {
+                    Some(w) if open && !text.starts_with(' ') => {
+                        w.text.push_str(&text);
+                        w.end_ms = w.end_ms.max(end_ms);
+                    }
+                    _ if text.trim().is_empty() => {}
+                    _ => out.push(Word { text: text.trim_start().to_string(), start_ms, end_ms }),
+                }
+                open = true;
+            }
+        }
+        out.retain(|w| !w.text.trim().is_empty());
+        Ok(out)
+    }
 }
+
 
 /// Whisper's initial prompt: the person's own words (settings), nothing else. Whisper reads only the last ~224 tokens
 /// of it; keep it short. Nothing about a meeting or a person goes in: Whisper sometimes echoes prompt words into the
@@ -172,11 +215,12 @@ struct Reply {
     words: Vec<Word>,
 }
 
-#[derive(serde::Deserialize, Debug, Clone)]
-struct Word {
-    text: String,
-    start_ms: u64,
-    end_ms: u64,
+/// A word and its times, in ms from the start of the audio it came from.
+#[derive(serde::Deserialize, Debug, Clone, PartialEq)]
+pub struct Word {
+    pub text: String,
+    pub start_ms: u64,
+    pub end_ms: u64,
 }
 
 /// Where the helper is: $RECORDEM_PARAKEET, or next to the recorder's executable (bundled as a sidecar).
@@ -266,10 +310,14 @@ impl Engine for Parakeet {
         let words = self.helper.lock().unwrap().turn(audio, lang)?;
         Ok(sentences(&words))
     }
+
+    fn words(&mut self, audio: &[f32], lang: &str, _vocabulary: &str) -> anyhow::Result<Vec<Word>> {
+        self.helper.lock().unwrap().turn(audio, lang)
+    }
 }
 
 /// Words into lines: a line ends at a sentence's end, a pause of more than a second, or past 25 s.
-fn sentences(words: &[Word]) -> Vec<Piece> {
+pub fn sentences(words: &[Word]) -> Vec<Piece> {
     const PAUSE_MS: u64 = 1_000;
     const MAX_MS: u64 = 25_000;
     let mut out: Vec<Piece> = vec![];
