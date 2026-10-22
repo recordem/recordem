@@ -52,6 +52,19 @@ engines on the same audio, the way the recorder runs them:
 Whisper 74 s, Parakeet v3 5.6 s; 88% of the words agree, with different mistakes (Whisper cleans up and sometimes
 paraphrases, Parakeet is verbatim and slips into English).
 
+**Evaluating a change without a call** (`engine/src/eval.rs`): calls go through the live draft, the diarization and
+the pass after the call, and come out with times, voices found, repeated lines, and against a reference DER (who
+spoke when) and WER (what was said). A fixture is a folder laid out like a recording (`mic.wav`, `system.wav`, plus
+`reference.rttm` or `reference.json`), so a call recorded with "Keep audio on this Mac" is one as it is. None of them
+are in this repository: public meetings come from `uv run eval/fetch_public.py --out ~/recordem-eval/public` (AMI,
+VoxConverse; CC BY 4.0), your own calls stay on your Mac.
+
+```bash
+cargo run --release -p recordem-engine --features bench --bin eval -- ~/recordem-eval/*/* --out after.json --baseline before.json
+```
+
+`--baseline` exits 1 when DER or WER went up more than a point, lines repeat more, or a stage got 25% slower.
+
 **UI** is plain HTML/JS in `ui/` (no bundler, no package.json), outside the bun workspace.
 
 ## Dev build

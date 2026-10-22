@@ -1,8 +1,10 @@
 // Telling the voices of the other side apart while the call goes on. It is Anarlog's pyannote-local pipeline (MIT:
 // segmentation, one WeSpeaker embedding per voice per 10 s window, centroid-linkage clustering, frame voting), split
 // where it can be: the windows — nearly all of the work — are run as the audio arrives, and only the clustering, a
-// few milliseconds of arithmetic over the embeddings, waits for the end of the call. The result is the same
-// segments `Diarizer::diarize` gives for the whole file (minus known voiceprints, which the recorder doesn't use).
+// few milliseconds of arithmetic over the embeddings, waits for the end of the call. The result is the segments
+// `Diarizer::diarize` gives for the whole file (minus known voiceprints, which the recorder doesn't use), with one
+// difference: one voice at a time. Where two voices overlap, the frame goes to the one most windows heard (as
+// pyannote's exclusive diarization, and Granola, do): each turn is then transcribed once, never the same words twice.
 //
 // Only the audio one window still needs is kept (10 s), so an hour of call costs the activities and embeddings, not
 // the samples. The windows are 2 s apart for the first hour, then 4 s (the batch pipeline caps the count the same
@@ -31,6 +33,8 @@ pub struct Streaming {
     activities: Vec<WindowActivity>,
     embeddings: Vec<Embedded>,
     mask: Vec<f32>,
+    /// One voice per frame (the default); off, overlapping voices each keep their frames, as the batch pipeline.
+    exclusive: bool,
 }
 
 impl Streaming {
@@ -47,6 +51,7 @@ impl Streaming {
             activities: vec![],
             embeddings: vec![],
             mask: vec![0.0; WINDOW_SAMPLES],
+            exclusive: true,
         })
     }
 
@@ -167,9 +172,13 @@ impl Streaming {
             }
         }
         let end = self.total as f64 / SAMPLE_RATE as f64;
+        let winners = self.exclusive.then(|| winners(&votes, &coverage));
         let mut segments = vec![];
         for (speaker, track) in votes.iter().enumerate() {
-            let active: Vec<bool> = track.iter().zip(&coverage).map(|(v, c)| *c > 0 && u32::from(*v) * 2 >= u32::from(*c)).collect();
+            let active: Vec<bool> = match &winners {
+                Some(w) => w.iter().map(|w| *w == Some(speaker)).collect(),
+                None => track.iter().zip(&coverage).map(|(v, c)| heard(*v, *c)).collect(),
+            };
             segments.extend(
                 runs(&active, speaker, self.config.min_duration_on, self.config.min_duration_off)
                     .into_iter()
@@ -183,6 +192,32 @@ impl Streaming {
         segments.sort_by(|a, b| a.start.total_cmp(&b.start).then(a.speaker.cmp(&b.speaker)));
         segments
     }
+}
+
+/// A voice speaks in a frame when at least half the windows covering it heard it there.
+fn heard(votes: u16, coverage: u16) -> bool {
+    coverage > 0 && u32::from(votes) * 2 >= u32::from(coverage)
+}
+
+/// The one voice of each frame: of those heard there, the one with the most votes; a tie stays with the voice of the
+/// frame before (a turn isn't cut by a coin toss), else the first. None where no one is heard.
+fn winners(votes: &[Vec<u16>], coverage: &[u16]) -> Vec<Option<usize>> {
+    let mut out: Vec<Option<usize>> = Vec::with_capacity(coverage.len());
+    for (frame, &c) in coverage.iter().enumerate() {
+        let prev = out.last().copied().flatten();
+        let mut best: Option<(u16, usize)> = None;
+        for (speaker, track) in votes.iter().enumerate() {
+            let v = track[frame];
+            if !heard(v, c) {
+                continue;
+            }
+            if best.is_none_or(|(b, k)| v > b || v == b && prev == Some(speaker) && prev != Some(k)) {
+                best = Some((v, speaker));
+            }
+        }
+        out.push(best.map(|(_, s)| s));
+    }
+    out
 }
 
 /// Runs while a recording does: the system channel from `audio` until the capture drops its end, then voices.json
@@ -306,6 +341,7 @@ mod tests {
             .segments;
         let batch_time = t.elapsed();
         let mut d = Streaming::new().unwrap();
+        d.exclusive = false; // the batch pipeline lets voices overlap
         let mut slowest = std::time::Duration::ZERO;
         for chunk in audio.chunks(1_600) {
             let t = std::time::Instant::now();
@@ -320,6 +356,15 @@ mod tests {
             assert_eq!(a.speaker, b.speaker);
             assert!((a.start - b.start).abs() < 1e-6 && (a.end - b.end).abs() < 1e-6, "{a:?} vs {b:?}");
         }
+    }
+
+    /// Two voices heard over the same frames: the frame goes to the one heard more, and a tie to whoever was speaking.
+    #[test]
+    fn one_voice_per_frame() {
+        let votes = vec![vec![2, 2, 2, 1, 0], vec![0, 2, 1, 2, 2]];
+        let coverage = vec![2, 2, 2, 2, 2];
+        assert_eq!(winners(&votes, &coverage), vec![Some(0), Some(0), Some(0), Some(1), Some(1)]);
+        assert_eq!(winners(&[vec![0, 0]], &[0, 3]), vec![None, None]);
     }
 
     #[test]

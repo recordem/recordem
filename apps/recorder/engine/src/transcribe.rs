@@ -5,7 +5,7 @@
 use crate::api::Segment;
 use crate::asr::Engine;
 use crate::models;
-use anlg_pyannote::{DiarizationConfig, DiarizeRequest, Diarizer, SpeakerSegment};
+use anlg_pyannote::SpeakerSegment;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
@@ -63,12 +63,20 @@ fn voices(audio: &[f32], found: Option<Vec<SpeakerSegment>>, progress: &Arc<Atom
     let mut segs: Vec<SpeakerSegment> = match found {
         Some(segs) if !segs.is_empty() => segs,
         Some(_) => return None,
+        // The same pipeline as during the call (diarize.rs: one voice at a time), over the whole file.
         None => {
-            let mut src = audio;
-            match Diarizer::new(DiarizationConfig::default())
-                .and_then(|mut d| d.diarize(&mut src, &DiarizeRequest { on_progress: Some(&on_progress), ..Default::default() }))
-            {
-                Ok(d) if !d.segments.is_empty() => d.segments,
+            let whole = || -> anyhow::Result<Vec<SpeakerSegment>> {
+                let mut d = crate::diarize::Streaming::new()?;
+                let chunks = audio.chunks(10 * crate::capture::RATE as usize);
+                let n = chunks.len().max(1) as f32;
+                for (i, c) in chunks.enumerate() {
+                    d.push(c)?;
+                    on_progress((i + 1) as f32 / n);
+                }
+                d.finish()
+            };
+            match whole() {
+                Ok(segs) if !segs.is_empty() => segs,
                 Ok(_) => return None,
                 Err(e) => {
                     eprintln!("diarization failed, falling back to VAD: {e}");

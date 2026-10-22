@@ -61,7 +61,7 @@ pub fn main(args: Vec<String>) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn words(s: &str) -> Vec<String> {
+pub(crate) fn words(s: &str) -> Vec<String> {
     s.split_whitespace()
         .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric() && c != '\'').to_lowercase())
         .filter(|w| !w.is_empty())
@@ -69,7 +69,7 @@ fn words(s: &str) -> Vec<String> {
 }
 
 /// Words in common, in order (longest common subsequence), over the average length: 1.0 is the same text.
-fn agreement(a: &str, b: &str) -> f64 {
+pub(crate) fn agreement(a: &str, b: &str) -> f64 {
     let (a, b) = (words(a), words(b));
     if a.is_empty() && b.is_empty() {
         return 1.0;

@@ -14,6 +14,11 @@ bench = []
 name = "asr-bench"
 required-features = ["bench"]
 
+# Calls through the whole pipeline without a call (src/eval.rs): cargo run --release --features bench --bin eval -- …
+[[bin]]
+name = "eval"
+required-features = ["bench"]
+
 [dependencies]
 # The protocol types the engine speaks (desktop-client/src/protocol.rs).
 recordem-desktop = { path = "../desktop-client" }

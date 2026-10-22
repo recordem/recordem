@@ -12,6 +12,7 @@ pub mod bench;
 mod callurl;
 pub mod capture;
 pub mod config;
+pub mod eval;
 mod diarize;
 mod dumps;
 mod live;
