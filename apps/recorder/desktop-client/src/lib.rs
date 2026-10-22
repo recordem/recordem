@@ -7,7 +7,7 @@
 //! let client = Client::start(Options::new("/Applications/MyApp.app/Contents/MacOS/recordem-desktop"), |e| {
 //!     if let Event::MeetingDetected { window } = e { println!("a call: {:?}", window.url) }
 //! })?;
-//! client.init(&Settings { api_url: Some("https://api.recordem.app".into()), data_dir: Some("/tmp/rec".into()), ..Default::default() })?;
+//! client.init(&Settings { api_url: Some("https://api.recordem.dev".into()), data_dir: Some("/tmp/rec".into()), ..Default::default() })?;
 //! // Your backend creates the recording (POST /v1/recordings with upload: true) and hands back its token:
 //! client.start_recording(&StartRecording { window_id: "w1".into(), upload_token: Some("eyJ…".into()), ..Default::default() })?;
 //! # Ok::<(), recordem_desktop::Error>(())

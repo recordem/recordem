@@ -76,7 +76,7 @@ await fetch(landed);
 step("cli login finishes", (await login.exited) === 0);
 let r = await run("whoami", "--json");
 const me = JSON.parse(r.out || "{}") as { workspace?: string; scopes?: string[] };
-step("cli whoami: read-only scopes", r.code === 0 && !!me.workspace && !me.scopes?.includes("meetings:write"), r);
+step("cli whoami: the CLI's scopes, no credentials", r.code === 0 && !!me.workspace && me.scopes?.includes("meetings:write") && !me.scopes?.includes("credentials:manage"), r);
 
 // 2. a recording with a transcript and notes (written as the recorder and the worker would)
 const write = await token(ana, email, "openid meetings:read meetings:write transcripts:read", API);

@@ -2,7 +2,7 @@
 // A key (API key) is a long-lived Bearer token, made in a dialog and shown once. Machine clients (client_credentials)
 // stay in the API for policies that forbid long-lived keys, but not here. Only the workspace's owners and admins see
 // this page work.
-import type { components } from "@recordem/sdk";
+import { RecordemError, type components } from "@recordem/sdk";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { signIn } from "./auth";
@@ -36,16 +36,17 @@ export function Settings() {
   const [showRevoked, setShowRevoked] = useState(false);
 
   const load = useCallback(async () => {
-    const k = await api.GET("/v1/api-keys");
-    if (k.error) { setNeedsScope(k.error.error === "insufficient_scope"); setError(k.error.message); return; }
-    setKeys(k.data.items); setError(null);
+    try {
+      setKeys((await api.apiKeys.list()).items); setError(null);
+    } catch (e) {
+      setNeedsScope(e instanceof RecordemError && e.code === "insufficient_scope"); setError((e as Error).message);
+    }
   }, []);
   useEffect(() => { void load(); }, [load]);
 
   const makeKey: Make = async (name, scopes) => {
-    const r = await api.POST("/v1/api-keys", { body: { name, scopes } });
-    if (r.error) throw new Error(r.error.message);
-    await load(); return [["Key", r.data.key]];
+    const k = await api.apiKeys.create({ name, scopes });
+    await load(); return [["Key", k.key]];
   };
   const active = keys?.filter((k) => !k.revoked_at) ?? [];
   const revoked = keys?.filter((k) => k.revoked_at) ?? [];
@@ -78,7 +79,7 @@ export function Settings() {
                     when={k.last_used_at ? `Last used ${date(k.last_used_at)}` : `Created ${date(k.created_at)}, not used yet`}
                     action={["Revoke", async () => {
                       if (!confirm(`Revoke "${k.name}"? The app using it stops working within a minute.`)) return;
-                      await api.DELETE("/v1/api-keys/{id}", { params: { path: { id: k.id } } }); await load();
+                      await api.apiKeys.revoke(k.id); await load();
                     }]} />
                 ))}
               </ul>

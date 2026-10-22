@@ -21,7 +21,7 @@ export type RecordemWindow = {
 };
 
 export type InitConfig = {
-  /** The Recordem API recordings are sent to (https://api.recordem.app). */
+  /** The Recordem API recordings are sent to (https://api.recordem.dev). */
   apiUrl: string;
   /** Where models, recordings not sent yet and caches are kept: in Electron, `app.getPath("userData")`. */
   dataDir: string;

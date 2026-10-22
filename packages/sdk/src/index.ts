@@ -1,10 +1,12 @@
-// The TypeScript client of the Recordem API: typed calls generated from openapi.json, plus the event stream.
-//   const api = createClient({ baseUrl, token: async () => accessToken });
-//   const { data } = await api.GET("/v1/meetings", { params: { query: { limit: 20 } } });
-import createFetchClient from "openapi-fetch";
-import type { components, paths } from "./schema";
+// The TypeScript client of the Recordem API: a typed method per operation (src/client.ts, generated from openapi.json),
+// plus the event stream. A method returns the result itself and throws a RecordemError when the API says no.
+//   const recordem = createClient({ baseUrl, token: async () => accessToken });
+//   const { items } = await recordem.meetings.list({ limit: 20 });
+import { caller } from "./call";
+import { operationsOf } from "./client";
+import type { components, operations, paths } from "./schema";
 
-export type { components, paths };
+export type { components, operations, paths };
 export type Schemas = components["schemas"];
 export type Meeting = Schemas["Meeting"];
 export type MeetingDetail = Schemas["MeetingDetail"];
@@ -21,6 +23,7 @@ export type Upload = Schemas["Upload"];
 export type ApiKey = Schemas["ApiKey"];
 export { clock, noNotes, notesText, speaker, transcriptText } from "./text";
 export { clientCredentials, verifyWebhook, WebhookError } from "./backend";
+export { RecordemError } from "./call";
 
 export type Options = {
   baseUrl: string;
@@ -33,9 +36,7 @@ export type Options = {
 export function createClient(opts: Options) {
   const token = typeof opts.token === "string" ? () => opts.token as string : opts.token;
   const o = { ...opts, token };
-  const client = createFetchClient<paths>({ baseUrl: opts.baseUrl, fetch: opts.fetch });
-  client.use({ async onRequest({ request }) { request.headers.set("authorization", `Bearer ${await token()}`); return request; } });
-  return Object.assign(client, { stream: (s: StreamOptions) => stream(o, s) });
+  return { ...operationsOf(caller(opts.baseUrl.replace(/\/$/, ""), token, opts.fetch)), stream: (s: StreamOptions) => stream(o, s) };
 }
 export type Client = ReturnType<typeof createClient>;
 

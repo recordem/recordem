@@ -12,8 +12,7 @@ async function monthMeetings(month: Date): Promise<Meeting[]> {
   const out: Meeting[] = [];
   let cursor: string | undefined;
   do {
-    const { data, error } = await api.GET("/v1/meetings", { params: { query: { from: from.toISOString(), to: to.toISOString(), limit: 200, cursor } } });
-    if (error) throw new Error(error.message);
+    const data = await api.meetings.list({ from: from.toISOString(), to: to.toISOString(), limit: 200, cursor });
     out.push(...data.items);
     cursor = data.next ?? undefined;
   } while (cursor);

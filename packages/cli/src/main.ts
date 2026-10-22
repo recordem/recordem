@@ -2,7 +2,7 @@
 // recordem: the Recordem API from a terminal, for people and for agents. Every command is one or two calls of
 // @recordem/sdk; --json prints what the API answered. Exit codes: 0 ok, 1 failed, 2 wrong usage, 3 not signed in (or
 // the token lacks a scope), 4 not found.
-import { clock, createClient, noNotes, notesText, transcriptText, type Client, type MeetingDetail, type Notes, type Recording } from "@recordem/sdk";
+import { clock, createClient, noNotes, notesText, RecordemError, transcriptText, type Client, type MeetingDetail, type Notes, type Recording } from "@recordem/sdk";
 import { AuthError, known, login, logout, server, token, use } from "./session";
 
 const HELP = `recordem — meetings, transcripts and notes from Recordem
@@ -87,25 +87,26 @@ const limit = (s: string | true | undefined) => (s === undefined ? undefined : N
 const text = (s: string | true | undefined) => (typeof s === "string" ? s : undefined);
 
 /** The API's answer, or an Exit with the right code. */
-async function ok<T>(p: Promise<{ data?: T; error?: unknown; response: Response }>): Promise<T> {
-  const { data, error, response } = await p;
-  if (data !== undefined && response.ok) return data;
-  const msg = (error as { message?: string } | undefined)?.message ?? response.statusText;
-  if (response.status === 401) throw new Exit(`not signed in: ${msg} (run \`recordem login\`)`, 3);
-  if (response.status === 403) {
-    const more = (error as { error?: string } | undefined)?.error === "insufficient_scope" ? " (run `recordem login` again to allow it)" : "";
-    throw new Exit(`not allowed: ${msg}${more}`, 3);
+async function ok<T>(p: Promise<T>): Promise<T> {
+  try {
+    return await p;
+  } catch (e) {
+    if (!(e instanceof RecordemError)) throw e;
+    if (e.status === 401) throw new Exit(`not signed in: ${e.message} (run \`recordem login\`)`, 3);
+    if (e.status === 403) throw new Exit(`not allowed: ${e.message}${e.code === "insufficient_scope" ? " (run `recordem login` again to allow it)" : ""}`, 3);
+    if (e.status === 404) throw new Exit(e.message, 4);
+    throw new Exit(`${e.status}: ${e.message}`, 1);
   }
-  if (response.status === 404) throw new Exit(msg, 4);
-  throw new Exit(`${response.status}: ${msg}`, 1);
 }
+
+/** The answer, or null when the API says it isn't there. */
+const found = <T>(p: Promise<T>) => p.catch((e) => { if (e instanceof RecordemError && e.status === 404) return null; throw e; });
 
 /** A recording by its id, or the recordings of a meeting by its id. */
 async function recordings(api: Client, id: string): Promise<{ meeting?: MeetingDetail; recordings: Recording[] }> {
-  const r = await api.GET("/v1/recordings/{id}", { params: { path: { id } } });
-  if (r.data) return { recordings: [r.data] };
-  if (r.response.status !== 404) await ok(Promise.resolve(r));   // throws: not signed in, not allowed…
-  const meeting = await ok(api.GET("/v1/meetings/{id}", { params: { path: { id } } })).catch((e) => {
+  const r = await ok(found(api.recordings.get(id)));
+  if (r) return { recordings: [r] };
+  const meeting = await ok(api.meetings.get(id)).catch((e) => {
     throw e instanceof Exit && e.code === 4 ? new Exit(`no recording or meeting ${id} in this workspace`, 4) : e;
   });
   return { meeting, recordings: meeting.recordings };
@@ -114,9 +115,7 @@ async function recordings(api: Client, id: string): Promise<{ meeting?: MeetingD
 /** Each recording with its notes, null when it has none (yet). */
 async function withNotes(api: Client, rs: Recording[]): Promise<(Recording & { notes: Notes | null })[]> {
   return Promise.all(rs.map(async (r) => {
-    const n = await api.GET("/v1/recordings/{id}/notes", { params: { path: { id: r.id } } });
-    if (!n.data && n.response.status !== 404) await ok(Promise.resolve(n));
-    return { ...r, notes: n.data ?? null };
+    return { ...r, notes: await ok(found(api.recordings.getNotes(r.id))) };
   }));
 }
 
@@ -148,11 +147,11 @@ async function main(argv: string[]) {
 
   switch (cmd) {
     case "whoami": {
-      const me = await ok(api.GET("/v1/me"));
+      const me = await ok(api.me());
       return out(me, () => `${me.subject} in workspace ${me.workspace}\nscopes: ${me.scopes.join(" ")}\nserver: ${base}`);
     }
     case "meetings": {
-      const page = await ok(api.GET("/v1/meetings", { params: { query: { from: when(flags.from), to: when(flags.to), limit: limit(flags.limit), cursor: text(flags.cursor) } } }));
+      const page = await ok(api.meetings.list({ from: when(flags.from), to: when(flags.to), limit: limit(flags.limit), cursor: text(flags.cursor) }));
       return out(page, () => [
         ...page.items.map((m) => `${local(m.starts_at)}  ${m.title ?? "(untitled)"}  ${m.id}`),
         page.items.length ? "" : "No meetings.",
@@ -160,7 +159,7 @@ async function main(argv: string[]) {
       ].filter(Boolean).join("\n"));
     }
     case "meeting": {
-      const m = await ok(api.GET("/v1/meetings/{id}", { params: { path: { id: need("a meeting id") } } }));
+      const m = await ok(api.meetings.get(need("a meeting id")));
       const rs = await withNotes(api, m.recordings);
       return out({ ...m, recordings: rs }, () => [
         `${m.title ?? "(untitled)"}  ${local(m.starts_at)}${m.ends_at ? ` – ${local(m.ends_at)}` : ""}${m.call_key ? `  ${m.call_key}` : ""}  ${m.id}`,
@@ -174,9 +173,9 @@ async function main(argv: string[]) {
     }
     case "search": {
       if (!rest.length) throw new Exit("search needs words to find; see recordem --help", 2);
-      const page = await ok(api.GET("/v1/search", { params: { query: {
+      const page = await ok(api.search({
         q: rest.join(" "), from: when(flags.from), to: when(flags.to), meeting_id: text(flags.meeting), limit: limit(flags.limit), cursor: text(flags.cursor),
-      } } }));
+      }));
       return out(page, () => [
         ...page.items.map((h) => {
           const where = `${h.meeting.title ?? "(untitled)"} · ${local(h.meeting.starts_at)}`;
@@ -193,7 +192,7 @@ async function main(argv: string[]) {
       const { meeting, recordings: rs } = await recordings(api, need("a recording or meeting id"));
       const since = offset(flags.since), until = offset(flags.until);
       const ts = await Promise.all(rs.filter((r) => r.transcript !== "none").map(async (r) => ({
-        recording: r, transcript: await ok(api.GET("/v1/recordings/{id}/transcript", { params: { path: { id: r.id } } })),
+        recording: r, transcript: await ok(api.recordings.getTranscript(r.id)),
       })));
       if (!ts.length) throw new Exit("no transcript yet", 4);
       return out(meeting ? ts : ts[0].transcript, () => ts.map(({ recording: r, transcript: t }) =>
@@ -211,14 +210,14 @@ async function main(argv: string[]) {
     case "audio": {
       const kind = text(flags.kind) ?? "mix";
       if (kind !== "mix" && kind !== "mic_hq") throw new Exit("--kind is mix or mic_hq", 2);
-      const u = await ok(api.GET("/v1/recordings/{id}/tracks/{kind}/url", { params: { path: { id: need("a recording id"), kind } } }));
+      const u = await ok(api.recordings.getTrackUrl(need("a recording id"), kind));
       return out(u, () => u.url);
     }
     case "rename": {
       const id = need("a meeting id");
       const title = flags.clear === true ? null : rest.slice(1).join(" ").trim();
       if (title === "") throw new Exit("rename needs a title (or --clear); see recordem --help", 2);
-      const m = await ok(api.PATCH("/v1/meetings/{id}", { params: { path: { id } }, body: { title } }));
+      const m = await ok(api.meetings.update(id, { title }));
       return out(m, () => `${m.title ?? "(untitled)"}  ${m.id}`);
     }
     default:

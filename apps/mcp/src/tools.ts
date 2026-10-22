@@ -1,7 +1,7 @@
 // The tools, and what an agent needs to know to use them well. Answers are compact text rather than JSON: transcripts
 // are long, and every id a next call needs is printed next to what it names.
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { clock, noNotes, notesText, transcriptText, type Client } from "@recordem/sdk";
+import { clock, noNotes, notesText, RecordemError, transcriptText, type Client } from "@recordem/sdk";
 import { z } from "zod";
 
 const INSTRUCTIONS = `Recordem keeps the user's meetings: who was in them, what was said (transcripts with speaker names), and notes written from each transcript once the call ends (summary, action items with owners, topics).
@@ -21,9 +21,17 @@ const read = { readOnlyHint: true, openWorldHint: false } as const;
 const text = (s: string) => ({ content: [{ type: "text" as const, text: s }] });
 const fail = (s: string) => ({ content: [{ type: "text" as const, text: s }], isError: true });
 
-/** The API's error as a tool error the agent can act on. */
-const why = (r: { error?: unknown; response: Response }) =>
-  fail(`${r.response.status}: ${(r.error as { message?: string } | undefined)?.message ?? r.response.statusText}`);
+/** The tool's text, or the API's error as a tool error the agent can act on. */
+const answer = async (f: () => Promise<string>) => {
+  try {
+    return text(await f());
+  } catch (e) {
+    if (e instanceof RecordemError) return fail(`${e.status}: ${e.message}`);
+    throw e;
+  }
+};
+/** The API's answer, or null when it isn't there. */
+const found = <T>(p: Promise<T>) => p.catch((e) => { if (e instanceof RecordemError && e.status === 404) return null; throw e; });
 
 export function tools(api: Client) {
   const server = new McpServer({ name: "recordem", version: "0.1.0" }, { instructions: INSTRUCTIONS });
@@ -40,17 +48,16 @@ export function tools(api: Client) {
       cursor: z.string().optional().describe("`next` from the previous page"),
     },
     annotations: read,
-  }, async ({ query, from, to, meeting_id, limit, cursor }) => {
-    const r = await api.GET("/v1/search", { params: { query: { q: query, from, to, meeting_id, limit, cursor } } });
-    if (!r.data) return why(r);
-    const lines = r.data.items.map((h) => {
+  }, ({ query, from, to, meeting_id, limit, cursor }) => answer(async () => {
+    const r = await api.search({ q: query, from, to, meeting_id, limit, cursor });
+    const lines = r.items.map((h) => {
       const m = `${h.meeting.title ?? "(untitled)"} (${h.meeting.starts_at}) meeting_id=${h.meeting.id}`;
       if (h.notes) return `- notes, ${h.notes.part.replace("_", " ")}${h.notes.topic && h.notes.topic !== h.notes.text ? ` "${h.notes.topic}"` : ""}: ${h.notes.text}\n  in ${m} recording_id=${h.recording_id}`;
       if (!h.segment) return `- ${h.field} match: ${m}`;
       return `- transcript [${clock(h.segment.start_ms)}] ${h.segment.speaker_name ?? h.segment.speaker ?? "?"}: ${h.segment.text}\n  in ${m} recording_id=${h.recording_id}`;
     });
-    return text([lines.length ? lines.join("\n") : "Nothing found.", r.data.next ? `next cursor: ${r.data.next}` : ""].filter(Boolean).join("\n"));
-  });
+    return [lines.length ? lines.join("\n") : "Nothing found.", r.next ? `next cursor: ${r.next}` : ""].filter(Boolean).join("\n");
+  }));
 
   server.registerTool("list_meetings", {
     title: "List meetings",
@@ -62,33 +69,30 @@ export function tools(api: Client) {
       cursor: z.string().optional().describe("`next` from the previous page"),
     },
     annotations: read,
-  }, async ({ from, to, limit, cursor }) => {
-    const r = await api.GET("/v1/meetings", { params: { query: { from, to, limit, cursor } } });
-    if (!r.data) return why(r);
-    const lines = r.data.items.map((m) => `- ${m.starts_at}${m.ends_at ? ` – ${m.ends_at}` : ""}  ${m.title ?? "(untitled)"}  meeting_id=${m.id}`);
-    return text([lines.length ? lines.join("\n") : "No meetings.", r.data.next ? `next cursor: ${r.data.next}` : ""].filter(Boolean).join("\n"));
-  });
+  }, ({ from, to, limit, cursor }) => answer(async () => {
+    const r = await api.meetings.list({ from, to, limit, cursor });
+    const lines = r.items.map((m) => `- ${m.starts_at}${m.ends_at ? ` – ${m.ends_at}` : ""}  ${m.title ?? "(untitled)"}  meeting_id=${m.id}`);
+    return [lines.length ? lines.join("\n") : "No meetings.", r.next ? `next cursor: ${r.next}` : ""].filter(Boolean).join("\n");
+  }));
 
   server.registerTool("get_meeting", {
     title: "Get a meeting",
     description: "A meeting with its recordings: for each, recording_id, when it started, whether a transcript exists (none, live while the call goes on, final), everyone the call app listed, and its notes (summary, action items, topics), or why there are none yet. Use the recording_id with get_transcript for quotes and detail.",
     inputSchema: { meeting_id: z.string().uuid() },
     annotations: read,
-  }, async ({ meeting_id }) => {
-    const r = await api.GET("/v1/meetings/{id}", { params: { path: { id: meeting_id } } });
-    if (!r.data) return why(r);
-    const m = r.data;
-    const notes = await Promise.all(m.recordings.map((x) => api.GET("/v1/recordings/{id}/notes", { params: { path: { id: x.id } } })));
-    return text([
+  }, ({ meeting_id }) => answer(async () => {
+    const m = await api.meetings.get(meeting_id);
+    const notes = await Promise.all(m.recordings.map((x) => found(api.recordings.getNotes(x.id))));
+    return [
       `${m.title ?? "(untitled)"}  ${m.starts_at}${m.ends_at ? ` – ${m.ends_at}` : ""}${m.call_key ? `  call ${m.call_key}` : ""}  meeting_id=${m.id}`,
       ...m.recordings.map((x, i) => [
         `\n## recording_id=${x.id} started ${x.started_at}${x.ended_at ? `, ended ${x.ended_at}` : ", still recording"}; transcript: ${x.transcript}`,
         x.attendees.length ? `attendees: ${x.attendees.join(", ")}` : "",
-        notes[i].data ? `notes:\n${notesText(notes[i].data)}` : noNotes(x),
+        notes[i] ? `notes:\n${notesText(notes[i])}` : noNotes(x),
       ].filter(Boolean).join("\n")),
       m.recordings.length ? "" : "No recordings.",
-    ].filter(Boolean).join("\n"));
-  });
+    ].filter(Boolean).join("\n");
+  }));
 
   server.registerTool("get_transcript", {
     title: "Read a transcript",
@@ -100,38 +104,28 @@ export function tools(api: Client) {
       max_lines: z.number().int().min(1).max(2000).default(400).describe("Lines per page"),
     },
     annotations: read,
-  }, async ({ recording_id, start, end, max_lines }) => {
-    const [rec, t] = await Promise.all([
-      api.GET("/v1/recordings/{id}", { params: { path: { id: recording_id } } }),
-      api.GET("/v1/recordings/{id}/transcript", { params: { path: { id: recording_id } } }),
-    ]);
-    if (!rec.data) return why(rec);
-    if (!t.data) return why(t);
-    const inRange = t.data.segments.filter((s) => s.end_ms > start * 1000 && (end === undefined || s.start_ms < end * 1000));
+  }, ({ recording_id, start, end, max_lines }) => answer(async () => {
+    const [rec, t] = await Promise.all([api.recordings.get(recording_id), api.recordings.getTranscript(recording_id)]);
+    const inRange = t.segments.filter((s) => s.end_ms > start * 1000 && (end === undefined || s.start_ms < end * 1000));
     const page = inRange.slice(0, max_lines);
     const more = inRange.length > page.length ? page.at(-1)!.end_ms : null;
-    return text([
-      `recording_id=${recording_id} started ${rec.data.started_at} (transcript ${t.data.status}${t.data.language ? `, ${t.data.language}` : ""}); ${t.data.segments.length} lines in all`,
-      transcriptText({ segments: page, speakers: t.data.speakers }) || "No lines in this range.",
+    return [
+      `recording_id=${recording_id} started ${rec.started_at} (transcript ${t.status}${t.language ? `, ${t.language}` : ""}); ${t.segments.length} lines in all`,
+      transcriptText({ segments: page, speakers: t.speakers }) || "No lines in this range.",
       more !== null ? `next start: ${Math.floor(more / 1000)}` : "",
-    ].filter(Boolean).join("\n"));
-  });
+    ].filter(Boolean).join("\n");
+  }));
 
   server.registerTool("get_notes", {
     title: "Get meeting notes",
     description: "A recording's notes, written by a language model from its final transcript: summary, action items (with owners) and topics. Read these before the transcript. Not there while the call goes on, for a minute after it ends, or when the server has no language model: read the transcript then.",
     inputSchema: { recording_id: z.string().uuid().describe("From get_meeting or a search hit") },
     annotations: read,
-  }, async ({ recording_id }) => {
-    const r = await api.GET("/v1/recordings/{id}/notes", { params: { path: { id: recording_id } } });
-    if (r.response.status === 404) {
-      const rec = await api.GET("/v1/recordings/{id}", { params: { path: { id: recording_id } } });
-      if (!rec.data) return why(rec);
-      return text(`${noNotes(rec.data)}. Read the transcript instead (get_transcript).`);
-    }
-    if (!r.data) return why(r);
-    return text(notesText(r.data));
-  });
+  }, ({ recording_id }) => answer(async () => {
+    const n = await found(api.recordings.getNotes(recording_id));
+    if (n) return notesText(n);
+    return `${noNotes(await api.recordings.get(recording_id))}. Read the transcript instead (get_transcript).`;
+  }));
 
   return server;
 }

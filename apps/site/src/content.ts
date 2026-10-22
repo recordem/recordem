@@ -14,16 +14,17 @@ const recordem = createClient({
 
 // An interview is about to start: create its recording,
 // and hand the desktop app a token good for that one only.
-const { data: rec } = await recordem.POST("/v1/recordings", {
-  body: { id: crypto.randomUUID(), ref: "interview_123", upload: true },
+const rec = await recordem.recordings.create({
+  id: crypto.randomUUID(),
+  started_at: new Date().toISOString(),
+  ref: "interview_123",
+  upload: true,
 });
 
 // Later, a webhook: the transcript is in, each line with its speaker.
 const event = await verifyWebhook(secret, body, signature);
 if (event.type === "recording.uploaded") {
-  const { data: t } = await recordem.GET("/v1/recordings/{id}/transcript", {
-    params: { path: { id: event.recording_id } },
-  });
+  const t = await recordem.recordings.getTranscript(event.recording_id);
 }`;
 
 export const DESKTOP = `import sdk from "@recordem/desktop-sdk";

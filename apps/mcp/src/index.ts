@@ -4,7 +4,7 @@
 // client without a token is pointed at the identity provider, registers itself there and asks for one for this
 // server; the identity provider lists this server among its resources and the API accepts its tokens.
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { createClient } from "@recordem/sdk";
+import { createClient, RecordemError } from "@recordem/sdk";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { tools } from "./tools";
@@ -55,9 +55,9 @@ app.post("/mcp", async (c) => {
   const token = c.req.header("authorization")?.match(/^Bearer (.+)$/i)?.[1];
   if (!token) return challenge();
   const api = createClient({ baseUrl: API, token: () => token });
-  const me = await api.GET("/v1/me");
-  if (me.response.status === 401 || (me.data && !audiences(token).includes(RESOURCE))) return challenge("invalid_token");
-  if (!me.data) return c.json({ error: "server_error", message: `api: ${me.response.status}` }, 502);
+  const status = await api.me().then(() => 200, (e) => (e instanceof RecordemError ? e.status : 502));
+  if (status === 401 || (status === 200 && !audiences(token).includes(RESOURCE))) return challenge("invalid_token");
+  if (status !== 200) return c.json({ error: "server_error", message: `api: ${status}` }, 502);
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   await tools(api).connect(transport);
   return transport.handleRequest(c.req.raw);

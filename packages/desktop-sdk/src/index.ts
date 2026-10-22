@@ -3,7 +3,7 @@
 // engine only ever holds an upload token for one recording; your backend creates the recording with its own key.
 //
 //   import sdk from "@recordem/desktop-sdk";
-//   await sdk.init({ apiUrl: "https://api.recordem.app", dataDir: app.getPath("userData") });
+//   await sdk.init({ apiUrl: "https://api.recordem.dev", dataDir: app.getPath("userData") });
 //   sdk.addEventListener("meeting-detected", async ({ window }) => {
 //     const { uploadToken } = await yourBackend.createRecording();
 //     await sdk.startRecording({ windowId: window.id, uploadToken });

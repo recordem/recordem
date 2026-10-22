@@ -67,7 +67,7 @@ pub struct Window {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
-    /// The Recordem API the recordings are sent to (https://api.recordem.app).
+    /// The Recordem API the recordings are sent to (https://api.recordem.dev).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_url: Option<String>,
     /// Where models, recordings not sent yet and caches are kept.

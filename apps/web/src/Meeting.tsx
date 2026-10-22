@@ -1,6 +1,6 @@
 // A meeting: its recording's notes and transcript with names on the voices, a player where a line's time seeks to it,
 // and, while the call goes on, the transcript growing live over the event stream.
-import type { MeetingDetail, Notes, Participants, Recording, Segment, SpeakerName, Transcript } from "@recordem/sdk";
+import { RecordemError, type MeetingDetail, type Notes, type Participants, type Recording, type Segment, type SpeakerName, type Transcript } from "@recordem/sdk";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { callApp, clock, day, duration, speakerName, time } from "./format";
@@ -15,27 +15,23 @@ export function MeetingPage({ id }: { id: string }) {
   const closeDetails = useCallback(() => setDetails(false), []);
 
   const load = useCallback(async () => {
-    const { data, error } = await api.GET("/v1/meetings/{id}", { params: { path: { id } } });
-    if (error) setError(error.message); else setMeeting(data);
+    await api.meetings.get(id).then(setMeeting, (e: Error) => setError(e.message));
   }, [id]);
   useEffect(() => { void load(); }, [load]);
 
   // A recording linked to the wrong meeting becomes a meeting of its own; the page follows it.
   const split = async (recordingId: string) => {
-    const { data, error } = await api.POST("/v1/recordings/{id}/move", { params: { path: { id: recordingId } }, body: { meeting_id: null } });
-    if (error) setError(error.message); else navigate(`/m/${data.meeting_id}`);
+    await api.recordings.move(recordingId, { meeting_id: null }).then((r) => navigate(`/m/${r.meeting_id}`), (e: Error) => setError(e.message));
   };
 
   const removeRecording = async (recordingId: string) => {
     if (!confirm("Delete this recording, its transcript and audio? This can't be undone.")) return;
-    const { error } = await api.DELETE("/v1/recordings/{id}", { params: { path: { id: recordingId } } });
-    if (error) setError(error.message); else { setPick(null); void load(); }
+    await api.recordings.delete(recordingId).then(() => { setPick(null); void load(); }, (e: Error) => setError(e.message));
   };
   const removeMeeting = async () => {
     const n = meeting?.recordings.length ?? 0;
     if (!confirm(`Delete this meeting${n ? ` and its ${n > 1 ? `${n} recordings` : "recording"} (transcripts and audio)` : ""}? This can't be undone.`)) return;
-    const { error } = await api.DELETE("/v1/meetings/{id}", { params: { path: { id } } });
-    if (error) setError(error.message); else navigate("/");
+    await api.meetings.delete(id).then(() => navigate("/"), (e: Error) => setError(e.message));
   };
 
   if (error) return <Frame><p className="error">{error}</p></Frame>;
@@ -117,8 +113,7 @@ function Title({ meeting, editing, setEditing, onSaved }: {
     setEditing(false);
     const title = value.trim() || null;
     if (title === meeting.title) return;
-    const { data, error } = await api.PATCH("/v1/meetings/{id}", { params: { path: { id: meeting.id } }, body: { title } });
-    if (error) setError(error.message); else { setError(null); onSaved({ title: data.title }); }
+    await api.meetings.update(meeting.id, { title }).then((m) => { setError(null); onSaved({ title: m.title }); }, (e: Error) => setError(e.message));
   };
   if (editing) {
     return (
@@ -165,21 +160,20 @@ function RecordingView({ rec, onChange, details, onCloseDetails }: {
   const live = !rec.ended_at || rec.transcript === "live";
 
   const loadTranscript = useCallback(async () => {
-    const { data, response } = await api.GET("/v1/recordings/{id}/transcript", { params: { path: { id: rec.id } } });
-    if (data) { setT(data); setMissing(false); } else if (response.status === 404) setMissing(true);
+    await api.recordings.getTranscript(rec.id).then((t) => { setT(t); setMissing(false); },
+      (e) => { if (e instanceof RecordemError && e.status === 404) setMissing(true); });
   }, [rec.id]);
   useEffect(() => { void loadTranscript(); }, [loadTranscript]);
 
   // Written after the call, when the server has a language model; not found until then.
   const loadNotes = useCallback(async () => {
-    const { data } = await api.GET("/v1/recordings/{id}/notes", { params: { path: { id: rec.id } } });
-    setNotes(data ?? null);
+    setNotes(await api.recordings.getNotes(rec.id).catch(() => null));
   }, [rec.id]);
   useEffect(() => { void loadNotes(); }, [loadNotes]);
 
   useEffect(() => {
     if (!track) return;
-    void api.GET("/v1/recordings/{id}/tracks/{kind}/url", { params: { path: { id: rec.id, kind: track } } }).then(({ data }) => data && setSrc(data.url));
+    void api.recordings.getTrackUrl(rec.id, track).then((u) => setSrc(u.url), () => {});
   }, [rec.id, track]);
 
   // Live: segments arrive in batches from index `from`; the final transcript and the audio replace the draft. After
@@ -215,12 +209,11 @@ function RecordingView({ rec, onChange, details, onCloseDetails }: {
     const ms = (audio.current?.currentTime ?? 0) * 1000;
     setNow(segs.findLastIndex((s) => s.start_ms <= ms));
   };
-  const stop = async () => { setStopping(true); await api.POST("/v1/recordings/{id}/stop", { params: { path: { id: rec.id } } }); };
+  const stop = async () => { setStopping(true); await api.recordings.stop(rec.id); };
   const names = t?.speakers ?? [];
   // A voice of the other side gets a name by hand; null takes it back to "Speaker N".
   const rename = async (label: string, name: string | null) => {
-    const { data } = await api.PATCH("/v1/recordings/{id}/transcript/speakers", { params: { path: { id: rec.id } }, body: { label, name } });
-    if (data) setT(data);
+    setT(await api.recordings.nameSpeaker(rec.id, { label, name }));
   };
   const me = names.find((n) => n.label === "mic")?.name;
 

@@ -1,0 +1,102 @@
+// Writes src/client.ts from the API's openapi.json: one typed method per operation, grouped by the resource its path
+// starts with (`/v1/recordings/…` → `recordem.recordings`), named by its operationId without the resource's noun
+// (createRecording → recordings.create, getTranscript → recordings.getTranscript). Path parameters come first, in
+// order, then the body or the query as one object. A resource with one operation named like it is a function of its
+// own (`recordem.me()`, `recordem.search({ q })`). Run by `bun run generate`, after openapi-typescript.
+//   bun scripts/client.ts
+const SPEC = new URL("../../contract/openapi.json", import.meta.url);
+const OUT = new URL("../src/client.ts", import.meta.url);
+const CUSTOM = new Set(["stream"]);   // written by hand in index.ts
+
+type Schema = { $ref?: string };
+type Op = {
+  operationId: string; summary?: string; description?: string;
+  parameters?: { in: string; name: string; required?: boolean; schema?: { enum?: string[] } }[];
+  requestBody?: { required?: boolean; content: Record<string, { schema: Schema }> };
+  responses: Record<string, { content?: Record<string, { schema: Schema }> }>;
+};
+
+const spec = await Bun.file(SPEC).json() as { paths: Record<string, Record<string, Op>> };
+const camel = (s: string) => s.replace(/-(\w)/g, (_, c: string) => c.toUpperCase());
+const upper = (s: string) => s[0]!.toUpperCase() + s.slice(1);
+const lower = (s: string) => s[0]!.toLowerCase() + s.slice(1);
+const ref = (s: Schema | undefined) => s?.$ref?.split("/").pop();
+
+/** createApiKey on api-keys → create; meetingContext on meetings → context; getTranscript on recordings stays. */
+function methodName(opId: string, resource: string) {
+  for (const noun of [upper(resource), upper(resource.replace(/s$/, ""))]) {
+    if (opId.endsWith(noun) && opId !== noun) return opId.slice(0, -noun.length);
+    if (opId.startsWith(lower(noun)) && opId !== lower(noun)) return lower(opId.slice(noun.length));
+  }
+  return opId;
+}
+
+type Method = { resource: string; name: string; code: string };
+const methods: Method[] = [];
+
+for (const [path, ops] of Object.entries(spec.paths)) {
+  for (const [verb, op] of Object.entries(ops)) {
+    const resource = camel(path.split("/")[2]!);
+    if (CUSTOM.has(op.operationId)) continue;
+    const T = `operations["${op.operationId}"]`;
+    const args: string[] = [];
+    const pathParams = [...path.matchAll(/\{(\w+)\}/g)].map((m) => m[1]!);
+    for (const p of pathParams) {
+      const values = op.parameters?.find((x) => x.in === "path" && x.name === p)?.schema?.enum;
+      args.push(`${p}: ${values ? values.map((v) => JSON.stringify(v)).join(" | ") : "string"}`);
+    }
+
+    let body = "";
+    const content = op.requestBody?.content ?? {};
+    const types = Object.keys(content);
+    if (types[0] === "application/json") {
+      const name = ref(content["application/json"]!.schema);
+      args.push(`body: ${name ? `Schemas["${name}"]` : `${T}["requestBody"]["content"]["application/json"]`}`);
+      body = ", body";
+    } else if (types.length) {
+      args.push(`data: Blob | ArrayBuffer | Uint8Array, type: ${types.map((t) => JSON.stringify(t)).join(" | ")} = ${JSON.stringify(types[0])}`);
+      body = ", data, type";
+    }
+
+    const query = (op.parameters ?? []).filter((p) => p.in === "query");
+    if (query.length) args.push(`query${query.some((p) => p.required) ? "" : "?"}: NonNullable<${T}["parameters"]["query"]>`);
+
+    const [status, ok] = Object.entries(op.responses).find(([s]) => s.startsWith("2"))!;
+    const out = Object.keys(ok.content ?? {});
+    let result: string, as: string;
+    if (!out.length) { result = "void"; as = "none"; }
+    else if (out[0] === "application/json") {
+      const name = ref(ok.content!["application/json"]!.schema);
+      result = name ? `Schemas["${name}"]` : `${T}["responses"][${status}]["content"]["application/json"]`;
+      as = "json";
+    } else { result = "Blob"; as = "blob"; }
+
+    const url = "`" + path.replace(/\{(\w+)\}/g, "${encodeURIComponent($1)}") + "`";
+    const doc = [op.summary, op.description].filter(Boolean).join(". ").replace(/\*\//g, "* /");
+    const name = methodName(op.operationId, resource);
+    const call = `call<${result}>("${verb.toUpperCase()}", ${url}, "${as}"${query.length ? ", query" : body ? ", undefined" : ""}${body})`;
+    methods.push({ resource, name, code: `    /** ${doc} */\n    ${name}: (${args.join(", ")}) => ${call},` });
+  }
+}
+
+const groups = Map.groupBy(methods, (m) => m.resource);
+let body = "";
+for (const [resource, ms] of [...groups].sort(([a], [b]) => a.localeCompare(b))) {
+  if (ms.length === 1 && (ms[0]!.name === "get" || ms[0]!.name === resource)) {
+    body += ms[0]!.code.replace(/^ {4}/gm, "  ").replace(/^( {2}\/\*\*.*\n {2})\w+:/m, `$1${resource}:`) + "\n";
+    continue;
+  }
+  body += `  ${resource}: {\n${ms.sort((a, b) => a.name.localeCompare(b.name)).map((m) => m.code).join("\n")}\n  },\n`;
+}
+
+await Bun.write(OUT, `// Generated by scripts/client.ts from openapi.json: do not edit (\`bun run generate\`).
+import type { Call } from "./call";
+import type { components, operations } from "./schema";
+
+type Schemas = components["schemas"];
+
+/** Every operation of the API, typed. */
+export const operationsOf = (call: Call) => ({
+${body}});
+`);
+console.log(`${methods.length} operations → src/client.ts`);

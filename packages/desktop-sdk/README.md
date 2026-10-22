@@ -23,7 +23,7 @@ SHA-256 in `engine.json`.
 import { app } from "electron";
 import sdk from "@recordem/desktop-sdk";
 
-await sdk.init({ apiUrl: "https://api.recordem.app", dataDir: app.getPath("userData") });
+await sdk.init({ apiUrl: "https://api.recordem.dev", dataDir: app.getPath("userData") });
 
 sdk.addEventListener("meeting-detected", async ({ window }) => {
   // Ask your backend for a recording of this call (it creates it with upload: true).

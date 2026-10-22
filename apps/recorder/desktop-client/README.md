@@ -13,7 +13,7 @@ let client = Client::start(Options::new(engine_path), |e| match e {
     Event::RealtimeEvent { event, data, .. } if event == "transcript.data" => println!("{}", data["text"]),
     _ => {}
 })?;
-client.init(&Settings { api_url: Some("https://api.recordem.app".into()), data_dir: Some(data_dir), ..Default::default() })?;
+client.init(&Settings { api_url: Some("https://api.recordem.dev".into()), data_dir: Some(data_dir), ..Default::default() })?;
 let window = client.prepare_desktop_audio_recording()?;
 client.start_recording(&StartRecording { window_id: window, upload_token: Some(token), ..Default::default() })?;
 ```
