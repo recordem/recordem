@@ -1,4 +1,5 @@
-# One image for the server: auth (identity provider), api, mcp, and the portal's static files (served by apps/web/serve.ts).
+# One image for the server: auth (identity provider), api, mcp, the portal's static files (served by apps/web/serve.ts)
+# and the landing page's (apps/site/serve.ts).
 # Each Deployment runs its own command; migrations run as initContainers. The portal is built in a first stage with
 # the public addresses baked in (Vite); the final stage installs on its own, since bun's isolated linker leaves
 # symlinks a multi-stage COPY would break.
@@ -17,11 +18,14 @@ COPY apps/auth/package.json apps/auth/
 COPY apps/api/package.json apps/api/
 COPY apps/worker/package.json apps/worker/
 COPY apps/web/package.json apps/web/
+COPY apps/site/package.json apps/site/
 COPY apps/mcp/package.json apps/mcp/
 # The Desktop SDK is a workspace too; its engine (macOS) is not for this image.
 RUN RECORDEM_DESKTOP_SKIP_DOWNLOAD=1 bun install --frozen-lockfile
 COPY packages packages
 COPY apps/web apps/web
+COPY apps/site apps/site
+RUN cd apps/site && bun run build
 RUN cd apps/web && AUTH_URL=$AUTH_URL API_URL=$API_URL VITE_API_BASE=$API_URL VITE_TOKEN_URL=$AUTH_URL/api/auth/oauth2/token bunx vite build
 
 FROM oven/bun:1.3.11
@@ -37,6 +41,7 @@ COPY apps/auth/package.json apps/auth/
 COPY apps/api/package.json apps/api/
 COPY apps/worker/package.json apps/worker/
 COPY apps/web/package.json apps/web/
+COPY apps/site/package.json apps/site/
 COPY apps/mcp/package.json apps/mcp/
 # The Desktop SDK is a workspace too; its engine (macOS) is not for this image.
 RUN RECORDEM_DESKTOP_SKIP_DOWNLOAD=1 bun install --frozen-lockfile
@@ -49,6 +54,8 @@ COPY apps/mcp apps/mcp
 COPY apps/recorder/crates/scrape/profiles apps/recorder/crates/scrape/profiles
 COPY apps/web/serve.ts apps/web/
 COPY --from=web /app/apps/web/dist apps/web/dist
+COPY apps/site/serve.ts apps/site/
+COPY --from=web /app/apps/site/dist apps/site/dist
 ENV NODE_ENV=production
 USER bun
 CMD ["bun", "apps/api/src/index.ts"]

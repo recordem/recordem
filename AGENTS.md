@@ -10,6 +10,7 @@ apps/auth/          identity provider: better-auth, organizations (= workspaces)
 apps/api/           Hono + @hono/zod-openapi: REST (/v1) and SSE (/v1/stream); verifies tokens, never logs anyone in
 apps/worker/        BullMQ workers: webhook delivery; meeting notes from a language model (any OpenAI-compatible API)
 apps/web/           portal (Vite + React): calendar, meeting page, live transcript; a client of packages/sdk
+apps/site/          landing page at recordem.dev (Vite + React, prerendered to static HTML; `bun run --filter @recordem/site dev`)
 apps/mcp/           MCP server for agents (streamable HTTP, /mcp): an OAuth protected resource, a client of packages/sdk
 apps/recorder/      macOS menu-bar recorder (Tauri 2, Rust): the app around recordem-desktop, the engine that detects calls,
                     records, transcribes locally and sends with an upload token (the Desktop SDK; see its README)
@@ -47,7 +48,7 @@ bun run smoke:sdk                        # API keys, client_credentials, a backe
 The portal runs on https (a self-signed cert in `apps/web/.cert/`): OAuth refuses plain-http redirect URIs off
 loopback. Its dev server proxies `/v1`, `/files` and the token endpoint (`/idp`) so the browser sees one origin.
 
-Ports are uncommon on purpose (auth 39410, api 39411, web 39412, mcp 39414; Postgres 39420, Redis 39421).
+Ports are uncommon on purpose (auth 39410, api 39411, web 39412, mcp 39414, site 39415; Postgres 39420, Redis 39421).
 
 ## License
 
