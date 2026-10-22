@@ -16,7 +16,6 @@
 // --diarize-only skips the speech recognition (DER only, in seconds), and --set name=value changes a diarization
 // setting (DiarizationConfig: min_cluster_seconds, clustering_threshold, …) without a rebuild, to sweep one.
 //
-// --words transcribes the other side by word and gives each word to its voice (transcribe::Assign::Words).
 // --overlapping lets voices overlap, as before diarization went one voice at a time.
 // --speakers max (or exact) bounds the voices by the reference's count, as the call app's participant list could.
 //
@@ -97,7 +96,6 @@ pub fn main(args: Vec<String>) -> anyhow::Result<()> {
             "--set" => settings.extend(it.next()),
             "--speakers" => speakers = it.next(),
             "--overlapping" => settings.push("overlapping=1".into()),
-            "--words" => settings.push("words=1".into()),
             f => fixtures.push(f.into()),
         }
     }
@@ -115,13 +113,12 @@ pub fn main(args: Vec<String>) -> anyhow::Result<()> {
     }
     let config = diarization(&settings)?;
     let overlapping = settings.iter().any(|s| s == "overlapping=1");
-    let assign = if settings.iter().any(|s| s == "words=1") { crate::transcribe::Assign::Words } else { crate::transcribe::Assign::Turns };
     let mut report = Report { engine: if asr { crate::asr::describe(&engine) } else { "diarization only".into() }, settings, fixtures: vec![] };
     let texts = out.with_extension("d");
     std::fs::create_dir_all(&texts)?;
     for dir in &fixtures {
         let name = dir.file_name().map_or_else(|| dir.display().to_string(), |n| n.to_string_lossy().into());
-        match fixture(dir, &name, &engine, &langs, live, asr, &config, speakers.as_deref(), overlapping, assign, &texts) {
+        match fixture(dir, &name, &engine, &langs, live, asr, &config, speakers.as_deref(), overlapping, &texts) {
             Ok(s) => {
                 print_row(&s);
                 report.fixtures.push(s);
@@ -144,7 +141,7 @@ pub fn main(args: Vec<String>) -> anyhow::Result<()> {
 /// The default diarization settings with `name=value` overrides.
 fn diarization(settings: &[String]) -> anyhow::Result<anlg_pyannote::DiarizationConfig> {
     let mut c = anlg_pyannote::DiarizationConfig::default();
-    for s in settings.iter().filter(|s| !s.starts_with("speakers=") && !s.starts_with("overlapping=") && !s.starts_with("words=")) {
+    for s in settings.iter().filter(|s| !s.starts_with("speakers=") && !s.starts_with("overlapping=")) {
         let (k, v) = s.split_once('=').ok_or_else(|| anyhow::anyhow!("--set {s}: name=value"))?;
         let f: f32 = v.parse()?;
         match k {
@@ -162,7 +159,7 @@ fn diarization(settings: &[String]) -> anyhow::Result<anlg_pyannote::Diarization
 }
 
 #[allow(clippy::too_many_arguments)]
-fn fixture(dir: &Path, name: &str, engine: &str, langs: &str, live: bool, asr: bool, config: &anlg_pyannote::DiarizationConfig, speakers: Option<&str>, overlapping: bool, assign: crate::transcribe::Assign, texts: &Path) -> anyhow::Result<Scored> {
+fn fixture(dir: &Path, name: &str, engine: &str, langs: &str, live: bool, asr: bool, config: &anlg_pyannote::DiarizationConfig, speakers: Option<&str>, overlapping: bool, texts: &Path) -> anyhow::Result<Scored> {
     let f = crate::capture::files(dir);
     let read = |p: &Path| if p.exists() { crate::capture::read(p) } else { Ok(vec![]) };
     let (mut mic, mut system) = (read(&f.mic)?, read(&f.system)?);
@@ -198,7 +195,7 @@ fn fixture(dir: &Path, name: &str, engine: &str, langs: &str, live: bool, asr: b
 
     let t = Instant::now();
     let progress = Arc::new(AtomicU32::new(0));
-    let segs = if asr { crate::transcribe::run_with(&mic, &system, Some(found.clone()), langs, "", engine, &progress, assign)? } else { vec![] };
+    let segs = if asr { crate::transcribe::run(&mic, &system, Some(found.clone()), langs, "", engine, &progress)? } else { vec![] };
     let final_s = t.elapsed().as_secs_f64();
 
     std::fs::write(texts.join(format!("{name}.txt")), lines(&segs))?;

@@ -59,14 +59,31 @@ fn voices(audio: &[f32], found: Option<Vec<SpeakerSegment>>, progress: &Arc<Atom
     const MERGE_GAP: usize = RATE;          // 1 s
     const MAX_CHUNK: usize = 25 * RATE;     // whisper's window is 30 s
     const PAD: usize = RATE * 15 / 100;     // 150 ms
+    let on_progress = |f: f32| progress.store(((base + weight * f) * 1000.0) as u32, Ordering::Relaxed);
     let mut segs: Vec<SpeakerSegment> = match found {
         Some(segs) if !segs.is_empty() => segs,
         Some(_) => return None,
         // The same pipeline as during the call (diarize.rs: one voice at a time), over the whole file.
-        None => match whole(audio, progress, base, weight) {
-            Some(segs) if !segs.is_empty() => segs,
-            _ => return None,
-        },
+        None => {
+            let whole = || -> anyhow::Result<Vec<SpeakerSegment>> {
+                let mut d = crate::diarize::Streaming::new()?;
+                let chunks = audio.chunks(10 * crate::capture::RATE as usize);
+                let n = chunks.len().max(1) as f32;
+                for (i, c) in chunks.enumerate() {
+                    d.push(c)?;
+                    on_progress((i + 1) as f32 / n);
+                }
+                d.finish()
+            };
+            match whole() {
+                Ok(segs) if !segs.is_empty() => segs,
+                Ok(_) => return None,
+                Err(e) => {
+                    eprintln!("diarization failed, falling back to VAD: {e}");
+                    return None;
+                }
+            }
+        }
     };
     segs.sort_by(|a, b| a.start.total_cmp(&b.start));
     let mut order: Vec<usize> = vec![];
@@ -91,21 +108,6 @@ fn voices(audio: &[f32], found: Option<Vec<SpeakerSegment>>, progress: &Arc<Atom
     }).collect();
     // A single turn longer than a window still has to fit one: cut it.
     Some(padded.into_iter().flat_map(|(a, b, k)| (a..b).step_by(MAX_CHUNK).map(move |x| (x, (x + MAX_CHUNK).min(b), k))).collect())
-}
-
-/// The voices of the whole channel, when nothing was found during the call; None when that fails.
-fn whole(audio: &[f32], progress: &Arc<AtomicU32>, base: f32, weight: f32) -> Option<Vec<SpeakerSegment>> {
-    let run = || -> anyhow::Result<Vec<SpeakerSegment>> {
-        let mut d = crate::diarize::Streaming::new()?;
-        let chunks = audio.chunks(10 * crate::capture::RATE as usize);
-        let n = chunks.len().max(1) as f32;
-        for (i, c) in chunks.enumerate() {
-            d.push(c)?;
-            progress.store(((base + weight * (i + 1) as f32 / n) * 1000.0) as u32, Ordering::Relaxed);
-        }
-        d.finish()
-    };
-    run().map_err(|e| eprintln!("diarization failed, falling back to VAD: {e}")).ok()
 }
 
 /// `turns`: (start, end, speaker label) in samples. `progress` is in thousandths of the whole job; this channel covers
@@ -149,24 +151,10 @@ pub(crate) fn turn(engine: &mut dyn Engine, audio: &[f32], at: usize, lang: &str
         .collect())
 }
 
-/// How the other side's words get their speaker. `Turns`: each voice's turn (the diarization's) is transcribed on its
-/// own. `Words`: the speech is transcribed in long stretches, as one hears it, and each word goes to the voice
-/// speaking when it was said: no word is cut at a turn's edge, nor lost where two voices overlap.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Assign {
-    Turns,
-    Words,
-}
-
 /// Both channels, merged by start time. `progress` goes 0..1000 over the whole job.
 /// `languages`: the ones the calls may be in, comma-separated ("pt,en"); each turn is transcribed in one of them.
 /// `engine`: the setting (asr::open), e.g. "whisper".
 pub fn run(mic: &[f32], system: &[f32], found: Option<Vec<SpeakerSegment>>, languages: &str, vocabulary: &str, engine: &str, progress: &Arc<AtomicU32>) -> anyhow::Result<Vec<Segment>> {
-    run_with(mic, system, found, languages, vocabulary, engine, progress, Assign::Turns)
-}
-
-#[allow(clippy::too_many_arguments)]
-pub fn run_with(mic: &[f32], system: &[f32], found: Option<Vec<SpeakerSegment>>, languages: &str, vocabulary: &str, engine: &str, progress: &Arc<AtomicU32>, assign: Assign) -> anyhow::Result<Vec<Segment>> {
     let langs = crate::config::languages(languages);
     let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(8);
     let mut engine = crate::asr::open(engine, threads)?;
@@ -176,86 +164,12 @@ pub fn run_with(mic: &[f32], system: &[f32], found: Option<Vec<SpeakerSegment>>,
     let mut segs = channel(engine.as_mut(), mic, mic_turns, &langs, vocabulary, "mic", progress, 0.0, wm)?;
     // The other side: about a third of its time goes to telling the voices apart, the rest to the engine.
     let ws = 1.0 - wm;
-    if assign == Assign::Words {
-        let voices = match found {
-            Some(v) => v,
-            None => whole(system, progress, wm, ws / 3.0).unwrap_or_default(),
-        };
-        segs.extend(by_word(engine.as_mut(), system, &voices, &langs, vocabulary, progress, wm + ws / 3.0, ws * 2.0 / 3.0)?);
-    } else {
-        let system_turns = match voices(system, found, progress, wm, ws / 3.0) {
-            Some(v) => v.into_iter().map(|(a, b, k)| (a, b, Some(format!("system:{}", k + 1)))).collect(),
-            None => speech(system)?.into_iter().map(|(a, b)| (a, b, None)).collect(),
-        };
-        segs.extend(channel(engine.as_mut(), system, system_turns, &langs, vocabulary, "system", progress, wm + ws / 3.0, ws * 2.0 / 3.0)?);
-    }
+    let system_turns = match voices(system, found, progress, wm, ws / 3.0) {
+        Some(v) => v.into_iter().map(|(a, b, k)| (a, b, Some(format!("system:{}", k + 1)))).collect(),
+        None => speech(system)?.into_iter().map(|(a, b)| (a, b, None)).collect(),
+    };
+    segs.extend(channel(engine.as_mut(), system, system_turns, &langs, vocabulary, "system", progress, wm + ws / 3.0, ws * 2.0 / 3.0)?);
     segs.sort_by_key(|s| s.start_ms);
     progress.store(1000, Ordering::Relaxed);
     Ok(segs)
-}
-
-/// The system channel by word: its speech (VAD, up to 25 s at a time) through the engine word by word, each word
-/// given to the voice that overlaps it most (or the nearest one), then the words of one voice in a row made into lines.
-/// A stretch is cut only where the language changes: each voice's turns in it get a language (as `channel` does), and
-/// the engine hears each part in its own.
-#[allow(clippy::too_many_arguments)]
-fn by_word(engine: &mut dyn Engine, audio: &[f32], voices: &[SpeakerSegment], langs: &[String], vocabulary: &str, progress: &Arc<AtomicU32>, base: f32, weight: f32) -> anyhow::Result<Vec<Segment>> {
-    const RATE: usize = crate::capture::RATE as usize;
-    let stretches = speech(audio)?;
-    let total: usize = stretches.iter().map(|(a, b)| b - a).sum::<usize>().max(1);
-    let mut done = 0usize;
-    // The language each voice spoke last: a short turn keeps it.
-    let mut prev: HashMap<Option<usize>, String> = HashMap::new();
-    let mut out = vec![];
-    for (a, b) in stretches {
-        if b - a < RATE / 2 {
-            continue;
-        }
-        let mut parts: Vec<(usize, usize, String)> = vec![];
-        let turns = voices.iter().filter_map(|v| {
-            let (s, e) = (((v.start * RATE as f64) as usize).max(a), ((v.end * RATE as f64) as usize).min(b));
-            (e > s).then_some((s, e, Some(v.speaker)))
-        });
-        let turns: Vec<_> = turns.collect();
-        for (s, e, who) in if turns.is_empty() { vec![(a, b, None)] } else { turns } {
-            let lang = engine.language(&audio[s..e], langs, prev.get(&who).map(String::as_str))?;
-            prev.insert(who, lang.clone());
-            match parts.last_mut() {
-                Some(p) if p.2 == lang => p.1 = e.max(p.1),
-                Some(p) => {
-                    p.1 = s.max(p.0); // the new language starts with its turn
-                    parts.push((s, e, lang));
-                }
-                None => parts.push((a, e, lang)),
-            }
-        }
-        if let Some(p) = parts.last_mut() {
-            p.1 = b;
-        }
-        for (s, e, lang) in parts {
-            if e - s < RATE / 4 {
-                continue;
-            }
-            let offset = (s * 1000 / RATE) as u64;
-            let words: Vec<crate::asr::Word> = engine
-                .words(&audio[s..e], &lang, vocabulary)?
-                .into_iter()
-                .map(|w| crate::asr::Word { start_ms: offset + w.start_ms, end_ms: offset + w.end_ms, ..w })
-                .collect();
-            let spans: Vec<(f64, f64)> = words.iter().map(|w| (w.start_ms as f64 / 1000.0, w.end_ms as f64 / 1000.0)).collect();
-            let who = anlg_pyannote::assign_words(&spans, voices);
-            let mut i = 0;
-            while i < words.len() {
-                let j = (i..words.len()).find(|&j| who[j] != who[i]).unwrap_or(words.len());
-                let speaker = who[i].map(|k| format!("system:{}", k + 1));
-                for p in crate::asr::sentences(&words[i..j]) {
-                    out.push(Segment { start_ms: p.start_ms, end_ms: p.end_ms, channel: "system".into(), text: p.text, language: Some(lang.clone()), speaker: speaker.clone() });
-                }
-                i = j;
-            }
-        }
-        done += b - a;
-        progress.store(((base + weight * done as f32 / total as f32) * 1000.0) as u32, Ordering::Relaxed);
-    }
-    Ok(out)
 }
