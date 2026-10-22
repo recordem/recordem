@@ -1,6 +1,6 @@
 [package]
 name = "recordem-recorder"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 description = "Recordem for the Mac: notices calls, records them through recordem-desktop and sends them to a Recordem server"
 license = "MIT"

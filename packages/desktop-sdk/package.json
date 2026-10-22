@@ -1,6 +1,6 @@
 {
   "name": "@recordem/desktop-sdk",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "license": "MIT",
   "description": "Record calls from your Electron or Node app: call detection, capture, local transcription and upload to Recordem",
