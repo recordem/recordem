@@ -14,11 +14,9 @@
 // changed when a number moves.
 //
 // --diarize-only skips the speech recognition (DER only, in seconds), and --set name=value changes a diarization
-// setting (DiarizationConfig: min_cluster_seconds, clustering_threshold, …) without a rebuild, to sweep one.
+// setting (DiarizationConfig: step_seconds, min_embedding_seconds, …) without a rebuild, to sweep one.
 //
 // --overlapping lets voices overlap, as before diarization went one voice at a time.
-// --speakers max (or exact) bounds the voices by the reference's count, as the call app's participant list could.
-//
 // --baseline compares with an earlier report and exits 1 when something got worse (DER or WER up more than a point,
 // more repeated lines, or a stage 25% slower), so a change can be kept or dropped on numbers.
 use crate::api::Segment;
@@ -82,7 +80,6 @@ pub fn main(args: Vec<String>) -> anyhow::Result<()> {
     let mut live = true;
     let mut asr = true;
     let mut settings: Vec<String> = vec![];
-    let mut speakers: Option<String> = None;
     let mut it = args.into_iter();
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -94,23 +91,18 @@ pub fn main(args: Vec<String>) -> anyhow::Result<()> {
             "--no-live" => live = false,
             "--diarize-only" => (live, asr) = (false, false),
             "--set" => settings.extend(it.next()),
-            "--speakers" => speakers = it.next(),
             "--overlapping" => settings.push("overlapping=1".into()),
             f => fixtures.push(f.into()),
         }
     }
     anyhow::ensure!(
         !fixtures.is_empty(),
-        "usage: eval <fixture dir>... [--engine whisper] [--lang en,pt] [--data <app data dir>] [--out eval.json] [--baseline earlier.json] [--no-live] [--diarize-only] [--set name=value]..."
+        "usage: eval <fixture dir>... [--engine whisper] [--lang en,pt] [--data <app data dir>] [--out eval.json] [--baseline earlier.json] [--no-live] [--diarize-only] [--overlapping] [--set name=value]..."
     );
     // The models the app downloaded (Recordem Dev's by default).
     crate::config::apply(&recordem_desktop::protocol::Settings { data_dir: Some(data.to_string_lossy().into()), ..Default::default() });
     anyhow::ensure!(crate::models::ready(), "no models in {}: open the app once, or pass --data", data.display());
 
-    if let Some(b) = &speakers {
-        anyhow::ensure!(b == "max" || b == "exact", "--speakers max | exact");
-        settings.push(format!("speakers={b}"));
-    }
     let config = diarization(&settings)?;
     let overlapping = settings.iter().any(|s| s == "overlapping=1");
     let mut report = Report { engine: if asr { crate::asr::describe(&engine) } else { "diarization only".into() }, settings, fixtures: vec![] };
@@ -118,7 +110,7 @@ pub fn main(args: Vec<String>) -> anyhow::Result<()> {
     std::fs::create_dir_all(&texts)?;
     for dir in &fixtures {
         let name = dir.file_name().map_or_else(|| dir.display().to_string(), |n| n.to_string_lossy().into());
-        match fixture(dir, &name, &engine, &langs, live, asr, &config, speakers.as_deref(), overlapping, &texts) {
+        match fixture(dir, &name, &engine, &langs, live, asr, &config, overlapping, &texts) {
             Ok(s) => {
                 print_row(&s);
                 report.fixtures.push(s);
@@ -141,15 +133,13 @@ pub fn main(args: Vec<String>) -> anyhow::Result<()> {
 /// The default diarization settings with `name=value` overrides.
 fn diarization(settings: &[String]) -> anyhow::Result<anlg_pyannote::DiarizationConfig> {
     let mut c = anlg_pyannote::DiarizationConfig::default();
-    for s in settings.iter().filter(|s| !s.starts_with("speakers=") && !s.starts_with("overlapping=")) {
+    for s in settings.iter().filter(|s| !s.starts_with("overlapping=")) {
         let (k, v) = s.split_once('=').ok_or_else(|| anyhow::anyhow!("--set {s}: name=value"))?;
         let f: f32 = v.parse()?;
         match k {
             "step_seconds" => c.step_seconds = f,
             "min_embedding_seconds" => c.min_embedding_seconds = f,
             "min_activity_seconds" => c.min_activity_seconds = f,
-            "clustering_threshold" => c.clustering_threshold = f,
-            "min_cluster_seconds" => c.min_cluster_seconds = f,
             "min_duration_on" => c.min_duration_on = f,
             "min_duration_off" => c.min_duration_off = f,
             _ => anyhow::bail!("--set {k}: not a diarization setting"),
@@ -159,7 +149,7 @@ fn diarization(settings: &[String]) -> anyhow::Result<anlg_pyannote::Diarization
 }
 
 #[allow(clippy::too_many_arguments)]
-fn fixture(dir: &Path, name: &str, engine: &str, langs: &str, live: bool, asr: bool, config: &anlg_pyannote::DiarizationConfig, speakers: Option<&str>, overlapping: bool, texts: &Path) -> anyhow::Result<Scored> {
+fn fixture(dir: &Path, name: &str, engine: &str, langs: &str, live: bool, asr: bool, config: &anlg_pyannote::DiarizationConfig, overlapping: bool, texts: &Path) -> anyhow::Result<Scored> {
     let f = crate::capture::files(dir);
     let read = |p: &Path| if p.exists() { crate::capture::read(p) } else { Ok(vec![]) };
     let (mut mic, mut system) = (read(&f.mic)?, read(&f.system)?);
@@ -183,10 +173,6 @@ fn fixture(dir: &Path, name: &str, engine: &str, langs: &str, live: bool, asr: b
     let reference = Reference::read(dir)?;
     let mut d = crate::diarize::Streaming::with(config.clone())?;
     d.exclusive = !overlapping;
-    if let (Some(b), Some(turns)) = (speakers, &reference.turns) {
-        let n = turns.iter().map(|t| &t.speaker).collect::<std::collections::HashSet<_>>().len();
-        d.bounds = if b == "exact" { anlg_pyannote::SpeakerBounds::exact(n) } else { anlg_pyannote::SpeakerBounds { max_speakers: Some(n), ..Default::default() } };
-    }
     for chunk in system.chunks(RATE / 10) {
         d.push(chunk)?;
     }

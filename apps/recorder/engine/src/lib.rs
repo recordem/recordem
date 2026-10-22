@@ -22,6 +22,7 @@ mod participants;
 pub mod permissions;
 mod profiles;
 mod transcribe;
+mod vbx;
 
 use recordem_desktop::{Event, Pending, PermissionItem, Ready, Settings, StartRecording, UploadStatus, Window};
 use serde::{Deserialize, Serialize};

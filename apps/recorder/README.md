@@ -24,7 +24,8 @@ a meeting app or browser starts using the mic   (Anarlog detect: Core Audio list
   → mic.wav + system.wav, 16 kHz                  (mic = you, system = the others)
     + mic_hq.wav, 48 kHz, no echo cancellation    (your own voice in full quality; setting "keep my voice in HQ")
   → live: Silero VAD cuts each channel's turns, whisper.cpp transcribes them → POST /v1/recordings/{id}/live
-  → after the call: pyannote (CoreML) tells the other voices apart → "system:1", "system:2", …;
+  → after the call: pyannote (CoreML) tells the other voices apart, VBx decides who is who, one voice at a time
+    → "system:1", "system:2", …;
     whisper.cpp large-v3-turbo (Metal) transcribes every turn, in the language each one sounds like
   → PUT /v1/recordings/{id}/transcript           → replaces the live draft
   → PUT /v1/recordings/{id}/tracks/mix           (both channels, AAC 32 kbps, ~14 MB/h)

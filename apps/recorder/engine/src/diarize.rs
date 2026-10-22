@@ -1,15 +1,15 @@
 // Telling the voices of the other side apart while the call goes on. It is Anarlog's pyannote-local pipeline (MIT:
 // segmentation, one WeSpeaker embedding per voice per 10 s window, centroid-linkage clustering, frame voting), split
 // where it can be: the windows — nearly all of the work — are run as the audio arrives, and only the clustering, a
-// few milliseconds of arithmetic over the embeddings, waits for the end of the call. The result is the segments
-// `Diarizer::diarize` gives for the whole file (minus known voiceprints, which the recorder doesn't use), with one
-// difference: one voice at a time. Where two voices overlap, the frame goes to the one most windows heard (as
-// pyannote's exclusive diarization, and Granola, do): each turn is then transcribed once, never the same words twice.
+// few seconds of arithmetic over the embeddings, waits for the end of the call. It differs from `Diarizer::diarize` in
+// two ways. The voices are told apart by VBx (vbx.rs, pyannote community-1's clustering) instead of linkage alone:
+// fewer people split in two or merged. And one voice at a time: where two voices overlap, the frame goes to the one
+// most windows heard (as pyannote's exclusive diarization, and Granola, do), so a turn is transcribed once.
 //
 // Only the audio one window still needs is kept (10 s), so an hour of call costs the activities and embeddings, not
 // the samples. The windows are 2 s apart for the first hour, then 4 s (the batch pipeline caps the count the same
 // way, so clustering stays bounded).
-use anlg_pyannote::clustering::{self, SpeakerBounds};
+use anlg_pyannote::clustering;
 use anlg_pyannote::segmentation::{FRAME_SIZE, LOCAL_SPEAKERS, SAMPLE_RATE, Segmenter, WINDOW_SAMPLES, WindowActivity, frame_start_sample, frames_for_samples};
 use anlg_pyannote::{DiarizationConfig, SpeakerSegment};
 
@@ -35,8 +35,6 @@ pub struct Streaming {
     mask: Vec<f32>,
     /// One voice per frame (the default); off, overlapping voices each keep their frames, as the batch pipeline.
     pub exclusive: bool,
-    /// How many voices there can be (e.g. no more than the people the call app lists); unbounded by default.
-    pub bounds: SpeakerBounds,
 }
 
 impl Streaming {
@@ -59,7 +57,6 @@ impl Streaming {
             embeddings: vec![],
             mask: vec![0.0; WINDOW_SAMPLES],
             exclusive: true,
-            bounds: SpeakerBounds::default(),
         })
     }
 
@@ -132,16 +129,14 @@ impl Streaming {
         Ok(())
     }
 
-    /// Clean-speech embeddings ("anchors") are clustered; every other embedding joins its nearest cluster.
+    /// Clean-speech embeddings ("anchors") are clustered (VBx); every other embedding joins its nearest cluster.
     fn cluster(&self) -> Vec<usize> {
         let mut anchors: Vec<usize> = (0..self.embeddings.len()).filter(|i| self.embeddings[*i].anchor).collect();
         if anchors.is_empty() {
             anchors = (0..self.embeddings.len()).collect();
         }
         let vectors: Vec<Vec<f32>> = anchors.iter().map(|i| self.embeddings[*i].embedding.clone()).collect();
-        let step = self.total.saturating_sub(WINDOW_SAMPLES).max(1) as f32 / self.starts.len().saturating_sub(1).max(1) as f32;
-        let min_cluster = (self.config.min_cluster_seconds / (step / SAMPLE_RATE as f32).max(f32::EPSILON)).ceil() as usize;
-        let anchor_labels = clustering::cluster(&vectors, self.config.clustering_threshold, min_cluster, self.bounds);
+        let anchor_labels = crate::vbx::cluster(&vectors);
         let centroids = clustering::centroids(&vectors, &anchor_labels);
         let mut labels = vec![usize::MAX; self.embeddings.len()];
         for (i, label) in anchors.iter().zip(&anchor_labels) {
@@ -329,41 +324,6 @@ mod tests {
         assert!(d.starts.iter().enumerate().all(|(i, s)| *s == i * step));
         assert!(d.starts.last().unwrap() + WINDOW_SAMPLES <= tone.len());
         let _ = d.finish().unwrap();
-    }
-
-    /// The same voices as the batch pipeline over the whole file: `RECORDEM_DIARIZE_WAV=call.wav cargo test --release
-    /// -- --ignored same_as_batch` (16 kHz mono, under an hour; `RECORDEM_DIARIZE_SECONDS` cuts it).
-    #[test]
-    #[ignore]
-    fn same_as_batch() {
-        let path = std::env::var("RECORDEM_DIARIZE_WAV").expect("RECORDEM_DIARIZE_WAV");
-        let mut audio = crate::capture::read(std::path::Path::new(&path)).unwrap();
-        if let Ok(s) = std::env::var("RECORDEM_DIARIZE_SECONDS") {
-            audio.truncate(s.parse::<usize>().unwrap() * SAMPLE_RATE as usize);
-        }
-        let t = std::time::Instant::now();
-        let batch = anlg_pyannote::Diarizer::new(DiarizationConfig::default())
-            .unwrap()
-            .diarize(&mut audio.as_slice(), &anlg_pyannote::DiarizeRequest::default())
-            .unwrap()
-            .segments;
-        let batch_time = t.elapsed();
-        let mut d = Streaming::new().unwrap();
-        d.exclusive = false; // the batch pipeline lets voices overlap
-        let mut slowest = std::time::Duration::ZERO;
-        for chunk in audio.chunks(1_600) {
-            let t = std::time::Instant::now();
-            d.push(chunk).unwrap();
-            slowest = slowest.max(t.elapsed());
-        }
-        let t = std::time::Instant::now();
-        let streamed = d.finish().unwrap();
-        eprintln!("batch {batch_time:?}; streaming: slowest 100 ms chunk {slowest:?}, finish {:?}; {} vs {} segments", t.elapsed(), batch.len(), streamed.len());
-        assert_eq!(batch.len(), streamed.len());
-        for (a, b) in batch.iter().zip(&streamed) {
-            assert_eq!(a.speaker, b.speaker);
-            assert!((a.start - b.start).abs() < 1e-6 && (a.end - b.end).abs() < 1e-6, "{a:?} vs {b:?}");
-        }
     }
 
     /// Two voices heard over the same frames: the frame goes to the one heard more, and a tie to whoever was speaking.
