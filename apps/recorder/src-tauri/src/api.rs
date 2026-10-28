@@ -83,6 +83,14 @@ pub async fn create(c: &Config, r: &NewRecording<'_>) -> anyhow::Result<Recordin
     Ok(check(res).await?.json().await?)
 }
 
+/// Names a meeting.
+pub async fn rename(c: &Config, meeting_id: &str, title: &str) -> anyhow::Result<()> {
+    let body = serde_json::json!({ "title": title });
+    let r = client().patch(url(c, &format!("/meetings/{meeting_id}"))).bearer_auth(crate::oauth::bearer(c).await?).json(&body).send().await?;
+    check(r).await?;
+    Ok(())
+}
+
 /// A meeting's page in the portal.
 pub fn meeting_url(c: &Config, meeting_id: &str) -> String {
     format!("{}/m/{meeting_id}", c.web_url.trim_end_matches('/'))

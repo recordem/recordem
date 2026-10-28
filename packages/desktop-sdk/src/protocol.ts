@@ -95,6 +95,7 @@ export type TranscriptLine = {
 export type Events = {
   hello: { protocol: number; version: string };
   "meeting-detected": { window: RecordemWindow };
+  /** The call's window changed while recorded: so far its title, once it shows the meeting's name. */
   "meeting-updated": { window: RecordemWindow };
   /** The call let go of the microphone (and isn't recorded), or its recording stopped after it did. */
   "meeting-closed": { window: RecordemWindow };

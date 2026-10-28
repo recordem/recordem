@@ -278,12 +278,16 @@ impl Engine {
                         let (title, platform) = inspect(&a.id);
                         w.title = title;
                         w.platform = w.platform.or(platform);
-                        // In a browser, the meeting tab has the call's whole link (and sometimes its name).
+                        // In a browser, the meeting tab has the call's whole link (and sometimes its name). The window
+                        // may say only the call code while the tab says its name ("Meet - NEAL Standup"): the one with
+                        // a name wins.
                         if kind.is_none()
                             && let Some((url, tab)) = callurl::find(&a.id)
                         {
                             w.platform = w.platform.or_else(|| callurl::platform(&a.id, &url).filter(|p| !p.is_empty()));
-                            w.title = w.title.or(Some(tab));
+                            if w.title.as_deref().and_then(recordem_desktop::meeting_title).is_none() && !tab.is_empty() {
+                                w.title = Some(tab);
+                            }
                             w.url = Some(url);
                         }
                         // Gone while it was looked at: nothing to say.
@@ -458,12 +462,25 @@ impl Engine {
     }
 
     /// Who is in the call (`participants.update`) and who the app shows speaking (`speaker.on`), when they change.
-    async fn tell_people(self, window: Window, id: String, people: participants::Latest, stop: CancellationToken) {
+    /// And the call's name, when its window shows one it didn't have (`meeting-updated`): Meet names the tab after the
+    /// calendar event once the call has loaded, not always by the time it takes the mic.
+    async fn tell_people(self, mut window: Window, id: String, people: participants::Latest, stop: CancellationToken) {
         let mut last: Option<api::Participants> = None;
         let mut speaking: Vec<String> = vec![];
         while !stop.is_cancelled() {
             tokio::time::sleep(Duration::from_millis(500)).await;
-            let Some(now) = people.lock().unwrap().as_ref().map(|l| l.participants()) else { continue };
+            let Some((now, title)) = people.lock().unwrap().as_ref().map(|l| (l.participants(), l.title.clone())) else { continue };
+            let named = title.as_deref().and_then(recordem_desktop::meeting_title);
+            if named.is_some() && named != window.title.as_deref().and_then(recordem_desktop::meeting_title) {
+                window.title = title;
+                if let Some(r) = self.0.rec.lock().unwrap().as_mut().filter(|r| r.id == id) {
+                    r.window.title = window.title.clone();
+                }
+                if let Some(w) = self.0.windows.lock().unwrap().get_mut(&window.id) {
+                    w.title = window.title.clone();
+                }
+                self.emit(Event::MeetingUpdated { window: window.clone() });
+            }
             if last.as_ref().is_none_or(|l| api::Participants { t_ms: now.t_ms, ..l.clone() } != now) {
                 let data = serde_json::to_value(&now).unwrap_or_default();
                 self.emit(Event::RealtimeEvent { window: window.clone(), recording_id: id.clone(), event: "participants.update".into(), data });

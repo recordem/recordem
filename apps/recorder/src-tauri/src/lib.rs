@@ -709,8 +709,15 @@ async fn register(app: &AppHandle, id: &str) -> anyhow::Result<String> {
         upload: true,
     })
     .await?;
-    if let Some(k) = app.state::<Shared>().inner.lock().unwrap().known.get_mut(id) {
-        k.meeting_id = Some(r.meeting_id.clone());
+    let named = app.state::<Shared>().inner.lock().unwrap().known.get_mut(id).and_then(|now| {
+        now.meeting_id = Some(r.meeting_id.clone());
+        now.title.clone().filter(|_| k.title.is_none())
+    });
+    // Named while it was being created (on_named): the meeting was made without it.
+    if let Some(t) = named
+        && let Err(e) = api::rename(&cfg, &r.meeting_id, &t).await
+    {
+        eprintln!("meeting {} not renamed: {e}", r.meeting_id);
     }
     let token = r.upload.ok_or_else(|| anyhow::anyhow!("the server gave no upload token"))?.token;
     let e = engine(app).map_err(anyhow::Error::msg)?;
@@ -770,6 +777,7 @@ fn open(app: AppHandle, meeting_id: String) -> Result<(), String> {
 fn on_event(app: &AppHandle, e: Event) {
     match e {
         Event::MeetingDetected { window } => on_call(app, window),
+        Event::MeetingUpdated { window } => on_named(app, window),
         Event::MeetingClosed { window } => {
             let st = app.state::<Shared>();
             let mut inner = st.inner.lock().unwrap();
@@ -824,6 +832,35 @@ fn on_event(app: &AppHandle, e: Event) {
         Event::Error { kind, message } => eprintln!("engine {kind}: {message}"),
         Event::Shutdown { code } => eprintln!("engine stopped ({code:?})"),
         _ => {}
+    }
+}
+
+/// The call being recorded showed its name after it started: the recording that had none takes it, and so does its
+/// meeting once the server has it (`register` names it otherwise).
+fn on_named(app: &AppHandle, window: Window) {
+    let Some(title) = window.title.as_deref().and_then(recordem_desktop::meeting_title) else { return };
+    let st = app.state::<Shared>();
+    let mut inner = st.inner.lock().unwrap();
+    let Some(id) = inner.recording.as_ref().filter(|r| r.window_id == window.id).map(|r| r.id.clone()) else { return };
+    let Some(k) = inner.known.get_mut(&id).filter(|k| k.title.is_none()) else { return };
+    k.title = Some(title.clone());
+    let meeting_id = k.meeting_id.clone();
+    let phase = match inner.phase.clone() {
+        Some(Phase::Recording { id: rid, started_at, app_name, live, .. }) if rid == id => {
+            Some(Phase::Recording { id: rid, started_at, title: Some(title.clone()), app_name, live })
+        }
+        _ => None,
+    };
+    drop(inner);
+    if let Some(p) = phase {
+        set_phase(app, p);
+    }
+    if let Some(m) = meeting_id {
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = api::rename(&config::load(), &m, &title).await {
+                eprintln!("meeting {m} not renamed: {e}");
+            }
+        });
     }
 }
 

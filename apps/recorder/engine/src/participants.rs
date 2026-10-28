@@ -34,6 +34,9 @@ pub struct Line {
     pub muted: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub self_name: Option<String>,
+    /// The call window's title (for its name, which may show up after the recording started); not in the file.
+    #[serde(skip)]
+    pub title: Option<String>,
 }
 
 impl Line {
@@ -98,6 +101,7 @@ fn line(t_ms: u64, s: &Scrape) -> Line {
         people: s.participants.iter().map(|p| p.name.clone()).collect(),
         muted: s.participants.iter().filter(|p| p.muted == Some(true)).map(|p| p.name.clone()).collect(),
         self_name: s.self_name.clone(),
+        title: s.window_title.clone(),
     }
 }
 
@@ -200,7 +204,7 @@ pub fn watch(bundle: String, dir: PathBuf, started: Instant, stop: CancellationT
                 }
                 let l = line(t_ms, &s);
                 *latest.lock().unwrap() = Some(l.clone());
-                let same = last.as_ref().is_some_and(|p| Line { t_ms, ..p.clone() } == l);
+                let same = last.as_ref().is_some_and(|p| Line { t_ms, title: l.title.clone(), ..p.clone() } == l);
                 if !same || written.elapsed() >= HEARTBEAT {
                     if writeln!(file, "{}", serde_json::to_string(&l).unwrap_or_default()).is_err() {
                         return;
@@ -366,10 +370,10 @@ mod tests {
         for t in (0..10_000).step_by(500) {
             // The person on this Mac talks over Ana now and then: never a system voice.
             let speaking = if t % 2000 == 0 { vec!["Ana Souza".into(), "Bruno Lima".into()] } else { vec!["Ana Souza".into()] };
-            lines.push(Line { t_ms: t, visible: true, speaking, people: vec![], muted: vec![], self_name: Some("Bruno Lima".into()) });
+            lines.push(Line { t_ms: t, visible: true, speaking, people: vec![], muted: vec![], self_name: Some("Bruno Lima".into()), title: None });
         }
         for t in (10_000..20_000).step_by(500) {
-            lines.push(Line { t_ms: t, visible: true, speaking: vec!["Carla Dias".into()], people: vec![], muted: vec![], self_name: None });
+            lines.push(Line { t_ms: t, visible: true, speaking: vec!["Carla Dias".into()], people: vec![], muted: vec![], self_name: None, title: None });
         }
         let mic = Segment { channel: "mic".into(), ..seg("mic", 2_000, 3_000) };
         let mut segs = [seg("system:1", 300, 9_800), seg("system:2", 10_300, 19_800), seg("system:3", 4_000, 4_400), mic];
@@ -384,7 +388,7 @@ mod tests {
     fn a_one_on_one_is_named_without_anyone_shown_speaking() {
         // Another tab in front: the call is listed, nobody is shown speaking.
         let lines: Vec<Line> = (0..30)
-            .map(|i| Line { t_ms: i * 1_000, visible: true, speaking: vec![], people: vec!["Ana Souza".into(), "Bruno Lima".into()], muted: vec![], self_name: Some("Bruno Lima".into()) })
+            .map(|i| Line { t_ms: i * 1_000, visible: true, speaking: vec![], people: vec!["Ana Souza".into(), "Bruno Lima".into()], muted: vec![], self_name: Some("Bruno Lima".into()), title: None })
             .collect();
         let mut segs = [seg("system:1", 1_000, 13_000), seg("system:1", 15_000, 25_000)];
         let names = name_lines(&lines, &mut segs);
@@ -397,7 +401,7 @@ mod tests {
         let mut lines = vec![];
         for t in (0..20_000).step_by(500) {
             let who = if t < 10_000 { "Carla Dias" } else { "Ana Souza" };
-            lines.push(Line { t_ms: t, visible: t < 15_000, speaking: vec![who.into()], people: vec![], muted: vec![], self_name: None });
+            lines.push(Line { t_ms: t, visible: t < 15_000, speaking: vec![who.into()], people: vec![], muted: vec![], self_name: None, title: None });
         }
         let unnamed = |s, e| Segment { speaker: None, ..seg("", s, e) };
         let mut segs = vec![unnamed(1_000, 4_000), unnamed(10_500, 13_000), unnamed(5_000, 8_000), unnamed(16_000, 19_000)];
@@ -441,7 +445,7 @@ mod tests {
 
     #[test]
     fn unreadable_times_are_no_evidence() {
-        let lines: Vec<Line> = (0..20).map(|i| Line { t_ms: i * 500, visible: false, speaking: vec![], people: vec![], muted: vec![], self_name: None }).collect();
+        let lines: Vec<Line> = (0..20).map(|i| Line { t_ms: i * 500, visible: false, speaking: vec![], people: vec![], muted: vec![], self_name: None, title: None }).collect();
         let mut segs = [seg("system:1", 0, 9_000)];
         assert!(name_lines(&lines, &mut segs).is_empty());
         assert_eq!(segs[0].speaker.as_deref(), Some("system:1"), "the voice stays");

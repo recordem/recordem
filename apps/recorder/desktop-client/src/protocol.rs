@@ -198,6 +198,7 @@ pub enum Event {
     #[serde(rename_all = "camelCase")]
     Hello { protocol: u32, version: String },
     MeetingDetected { window: Window },
+    /// The call's window changed while recorded: so far its title, once it shows the meeting's name.
     MeetingUpdated { window: Window },
     /// The call let go of the microphone (and isn't recorded), or its recording stopped after it did.
     MeetingClosed { window: Window },
