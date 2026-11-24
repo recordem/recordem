@@ -117,7 +117,7 @@
     },
     "packages/desktop-sdk": {
       "name": "@recordem/desktop-sdk",
-      "version": "0.1.2",
+      "version": "0.1.3",
     },
     "packages/sdk": {
       "name": "@recordem/sdk",
