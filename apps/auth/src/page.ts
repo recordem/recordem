@@ -13,6 +13,7 @@ export const page = (title: string, body: string, error?: string) => `<!doctype 
   input:not([type=checkbox]):not([type=radio]) { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--fg); }
   button { font: inherit; padding: 9px 14px; border: 0; border-radius: 8px; background: var(--fg); color: var(--bg); cursor: pointer; }
   button.ghost { background: transparent; color: var(--fg); border: 1px solid var(--line); }
+  a { color: var(--fg); }
   .error { color: var(--accent); margin: 0 0 12px; }
   p { margin: 0 0 12px; } .muted { color: var(--muted); } .small { font-size: 13px; } .lead { font-size: 16px; }
   .perms { list-style: none; margin: 0 0 20px; padding: 4px 14px; border: 1px solid var(--line); border-radius: 10px; }

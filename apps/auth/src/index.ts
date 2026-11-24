@@ -48,21 +48,43 @@ app.get("/sign-in", (c) => {
   const q = query(c);
   return c.html(page("Sign in", `
     <form method="post" action="/sign-in?${q}">
-      <label>Email <input name="email" type="email" required autofocus></label>
-      <label>Password <input name="password" type="password" required minlength="8"></label>
-      <label class="row"><input name="create" type="checkbox"> Create an account</label>
-      <label>Name <input name="name" placeholder="only when creating"></label>
-      <button>Continue</button>
-    </form>`, c.req.query("error")));
+      <label>Email <input name="email" type="email" required autofocus autocomplete="email"></label>
+      <label>Password <input name="password" type="password" required minlength="8" autocomplete="current-password"></label>
+      <button>Sign in</button>
+    </form>
+    <p class="muted small" style="margin-top:16px">New to Recordem? <a href="/sign-up?${q}">Create an account</a></p>`, c.req.query("error")));
 });
 
 app.post("/sign-in", async (c) => {
   const f = await c.req.parseBody();
-  const oauth_query = query(c) || undefined;
-  const r = f.create
-    ? await call(c, "/sign-up/email", { email: f.email, password: f.password, name: f.name || String(f.email).split("@")[0], oauth_query })
-    : await call(c, "/sign-in/email", { email: f.email, password: f.password, oauth_query });
+  const r = await call(c, "/sign-in/email", { email: f.email, password: f.password, oauth_query: query(c) || undefined });
   return next(c, r, `/sign-in?${query(c)}`);
+});
+
+app.get("/sign-up", (c) => {
+  const q = query(c);
+  return c.html(page("Create an account", `
+    <form method="post" action="/sign-up?${q}">
+      <label>Name <input name="name" autofocus autocomplete="name"></label>
+      <label>Email <input name="email" type="email" required autocomplete="email"></label>
+      <label>Password <input name="password" type="password" required minlength="8" autocomplete="new-password"></label>
+      <button>Create account</button>
+    </form>
+    <p class="muted small" style="margin-top:16px">Already have an account? <a href="/sign-in?${q}">Sign in</a></p>`, c.req.query("error")));
+});
+
+app.post("/sign-up", async (c) => {
+  const f = await c.req.parseBody();
+  const r = await call(c, "/sign-up/email", { email: f.email, password: f.password, name: f.name || String(f.email).split("@")[0], oauth_query: query(c) || undefined });
+  return next(c, r, `/sign-up?${query(c)}`);
+});
+
+// Ends the session here too, or the next sign-in would go straight back in as the same person. Only returns to a
+// portal origin.
+app.get("/sign-out", async (c) => {
+  await call(c, "/sign-out", {});
+  const to = c.req.query("return_to") ?? "";
+  return c.redirect(ORIGINS.some((o) => to === o || to.startsWith(`${o}/`)) ? to : "/sign-in");
 });
 
 app.get("/select-workspace", async (c) => {

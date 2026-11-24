@@ -33,9 +33,17 @@ export async function signIn(returnTo = location.pathname + location.search) {
   location.assign(`${__AUTH_URL__}/api/auth/oauth2/authorize?${q}`);
 }
 
-export function signOut() {
+/** Revokes the refresh token, forgets the tokens, and ends the identity provider's session (so the next sign-in asks). */
+export async function signOut() {
+  const t = memory;
   save(null);
-  location.assign("/");
+  if (t?.refresh) {
+    await fetch(TOKEN_URL.replace(/\/token$/, "/revoke"), {
+      method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: CLIENT_ID, token: t.refresh, token_type_hint: "refresh_token" }),
+    }).catch(() => {});
+  }
+  location.assign(`${__AUTH_URL__}/sign-out?${new URLSearchParams({ return_to: `${location.origin}/` })}`);
 }
 
 async function tokenRequest(body: Record<string, string>): Promise<Tokens> {

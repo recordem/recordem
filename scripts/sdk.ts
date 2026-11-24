@@ -32,7 +32,7 @@ async function person(scope: string) {
   const q = new URLSearchParams({ response_type: "code", client_id: reg.client_id, redirect_uri: REDIRECT, state: "s", scope,
     code_challenge: b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))), code_challenge_method: "S256", resource: API });
   let res = await go(`${AUTH}/api/auth/oauth2/authorize?${q}`);
-  res = await go(new URL(res.headers.get("location")!, AUTH).href, form({ email: `sdk+${crypto.randomUUID().slice(0, 8)}@recordem.dev`, password: "sdk-password-1", create: "on", name: "Admin" }));
+  res = await go(new URL(res.headers.get("location")!, AUTH).href.replace("/sign-in", "/sign-up"), form({ email: `sdk+${crypto.randomUUID().slice(0, 8)}@recordem.dev`, password: "sdk-password-1", name: "Admin" }));
   let loc = res.headers.get("location") ?? "";
   while (loc && !loc.includes("/consent") && !loc.startsWith(REDIRECT)) { res = await go(new URL(loc, AUTH).href); loc = res.headers.get("location") ?? ""; }
   if (loc.includes("/consent")) { res = await go(new URL(loc, AUTH).href.replace(/^(.*?)\/consent/, `${AUTH}/consent`), form({ accept: "yes" })); loc = res.headers.get("location") ?? ""; }

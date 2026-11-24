@@ -33,7 +33,7 @@ function browser() {
     for (let i = 0; i < 10; i++) {
       const page = new URL(loc, AUTH);
       if (!page.href.startsWith(AUTH)) return page;
-      const res = page.pathname === "/sign-in" ? await go(page.href, form({ email, password: "agents-password-1", create: "on", name: "Ana Souza" }))
+      const res = page.pathname === "/sign-in" ? await go(page.href.replace("/sign-in", "/sign-up"), form({ email, password: "agents-password-1", name: "Ana Souza" }))
         : page.pathname === "/consent" ? await go(page.href, form({ accept: "yes" }))
         : await go(page.href);
       loc = res.headers.get("location") ?? "";

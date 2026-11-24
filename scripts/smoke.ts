@@ -34,7 +34,7 @@ step("authorize redirects to sign-in", loc.includes("/sign-in"), loc.slice(0, 80
 
 // 3. sign up on that page; the flow continues by itself, to consent
 const email = `smoke+${Date.now()}@recordem.dev`;
-res = await go(new URL(loc, AUTH).href.replace("/sign-in", "/sign-in"), form({ email, password: "smoke-password-1", create: "on", name: "Smoke" }));
+res = await go(new URL(loc, AUTH).href.replace("/sign-in", "/sign-up"), form({ email, password: "smoke-password-1", name: "Smoke" }));
 loc = res.headers.get("location") ?? "";
 while (loc && !loc.includes("/consent") && !loc.startsWith(REDIRECT) && !loc.includes("error=")) { res = await go(new URL(loc, AUTH).href); loc = res.headers.get("location") ?? ""; }
 step("sign-up continues to consent", loc.includes("/consent"), loc.slice(0, 100));
@@ -171,7 +171,7 @@ step("its emptied meeting is gone", (await call("GET", `/v1/meetings/${m3.meetin
 // 8. another person, in their own workspace, sees none of it
 jar.clear();
 let res2 = await go(`${AUTH}/api/auth/oauth2/authorize?${q}`);
-res2 = await go(new URL(res2.headers.get("location")!, AUTH).href, form({ email: `other+${Date.now()}@recordem.dev`, password: "smoke-password-2", create: "on" }));
+res2 = await go(new URL(res2.headers.get("location")!, AUTH).href.replace("/sign-in", "/sign-up"), form({ email: `other+${Date.now()}@recordem.dev`, password: "smoke-password-2" }));
 res2 = await go(new URL(res2.headers.get("location")!, AUTH).href.replace(/^(.*?)\/consent/, `${AUTH}/consent`), form({ accept: "yes" }));
 const code2 = new URL(res2.headers.get("location")!, AUTH).searchParams.get("code")!;
 const tok2 = await (await fetch(`${AUTH}/api/auth/oauth2/token`, form({ grant_type: "authorization_code", code: code2, redirect_uri: REDIRECT,
