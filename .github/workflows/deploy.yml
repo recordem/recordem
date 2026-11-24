@@ -1,0 +1,84 @@
+name: Deploy
+# Deploys the hosted instance (recordem.dev): builds the server image (Dockerfile), pushes it to the hosting's
+# registry and bumps the image tag in the hosting's GitOps repository, which rolls it out.
+# Self-hosters don't need this workflow; on a fork it does nothing (the job only runs in recordem/recordem).
+#
+# Where it runs and deploys to is configuration, not code:
+#   repository variable   DEPLOY_RUNNER        the runner set that builds (self-hosted)
+#   environment production (deployments from main only):
+#     variable REGISTRY            image registry host[:port]
+#     variable GITOPS_REPO         ssh URL of the GitOps repository
+#     variable GITOPS_PATH         directory of the manifests whose image tag is bumped
+#     variable UMAMI_WEBSITE_ID    analytics for the landing page (empty = none)
+#     secret   GITOPS_DEPLOY_KEY   write deploy key on GITOPS_REPO
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/auth/**'
+      - 'apps/api/**'
+      - 'apps/worker/**'
+      - 'apps/web/**'
+      - 'apps/site/**'
+      - 'apps/mcp/**'
+      - 'apps/recorder/crates/scrape/profiles/**'
+      - 'packages/**'
+      - 'Dockerfile'
+      - 'package.json'
+      - 'bun.lock'
+      - '.github/workflows/deploy.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.repository == 'recordem/recordem' && github.ref == 'refs/heads/main'
+    runs-on: ${{ vars.DEPLOY_RUNNER }}
+    environment: production
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Image tag
+        run: echo "TAG=${GITHUB_SHA::8}" >> "$GITHUB_ENV"
+
+      - name: Build
+        env:
+          REGISTRY: ${{ vars.REGISTRY }}
+          UMAMI_WEBSITE_ID: ${{ vars.UMAMI_WEBSITE_ID }}
+        run: |
+          set -euo pipefail
+          docker build --build-arg UMAMI_WEBSITE_ID="$UMAMI_WEBSITE_ID" \
+            -t "$REGISTRY/recordem:$TAG" -t "$REGISTRY/recordem:latest" .
+
+      - name: Push
+        env:
+          REGISTRY: ${{ vars.REGISTRY }}
+        run: docker push "$REGISTRY/recordem" --all-tags
+
+      - name: Bump the image tag (GitOps)
+        env:
+          REGISTRY: ${{ vars.REGISTRY }}
+          GITOPS_REPO: ${{ vars.GITOPS_REPO }}
+          GITOPS_PATH: ${{ vars.GITOPS_PATH }}
+          DEPLOY_KEY: ${{ secrets.GITOPS_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          install -m 600 /dev/null ~/.gitops-key && printf '%s\n' "$DEPLOY_KEY" > ~/.gitops-key
+          export GIT_SSH_COMMAND="ssh -i ~/.gitops-key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+          git clone -q --depth 1 "$GITOPS_REPO" "$RUNNER_TEMP/gitops"
+          cd "$RUNNER_TEMP/gitops"
+          shopt -s nullglob
+          for f in "$GITOPS_PATH"/*.yaml; do
+            sed -i "s|image: $REGISTRY/recordem:.*|image: $REGISTRY/recordem:$TAG|" "$f"
+          done
+          if git diff --quiet; then echo "nothing to bump"; exit 0; fi
+          git config user.name "recordem-ci"
+          git config user.email "ci@recordem.dev"
+          git commit -qam "deploy: recordem $TAG (https://github.com/recordem/recordem/commit/$GITHUB_SHA)"
+          for i in 1 2 3; do git push -q && break; git pull -q --rebase; done
