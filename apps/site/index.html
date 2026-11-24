@@ -7,11 +7,45 @@
     <meta name="description" content="Recordem records your calls on your Mac, transcribes them on the device and tells you who said what. Open source, self-hostable, with an SDK and an MCP server. Free for solo use." />
     <meta property="og:title" content="Recordem: every call, remembered. No bot in the room." />
     <meta property="og:description" content="Local recording and transcription with speaker labels, one open API, SDKs for your backend and desktop app. Free for solo use." />
-    <meta property="og:url" content="https://recordem.dev" />
+    <link rel="canonical" href="https://recordem.dev/" />
+    <meta property="og:url" content="https://recordem.dev/" />
     <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Recordem" />
+    <meta property="og:image" content="https://recordem.dev/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Recordem: every call, remembered. No bot in the room." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="https://recordem.dev/og.png" />
+    <link rel="alternate" type="text/plain" href="/llms.txt" title="llms.txt" />
     <meta name="theme-color" content="#fbfbfa" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#121213" media="(prefers-color-scheme: dark)" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "SoftwareApplication",
+            "name": "Recordem",
+            "url": "https://recordem.dev/",
+            "description": "Meeting recorder for macOS that records calls without a bot, transcribes them on the device with speaker labels, and exposes them through an open API, SDKs and an MCP server. Open source and self-hostable.",
+            "applicationCategory": "BusinessApplication",
+            "operatingSystem": "macOS 14.4 or later (Apple silicon)",
+            "downloadUrl": "https://github.com/recordem/recordem/releases/latest",
+            "image": "https://recordem.dev/og.png",
+            "license": "https://github.com/recordem/recordem/blob/main/LICENSING.md",
+            "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD", "description": "Free for solo use and self-hosting" }
+          },
+          {
+            "@type": "SoftwareSourceCode",
+            "name": "recordem",
+            "codeRepository": "https://github.com/recordem/recordem",
+            "programmingLanguage": ["TypeScript", "Rust"]
+          }
+        ]
+      }
+    </script>
   </head>
   <body>
     <div id="root"><!--app--></div>

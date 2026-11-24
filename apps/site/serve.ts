@@ -14,7 +14,8 @@ Bun.serve({
         const immutable = path.startsWith("/assets/");
         return new Response(f, { headers: { "cache-control": immutable ? "public, max-age=31536000, immutable" : "public, max-age=3600" } });
       }
-      return Response.redirect(new URL("/", req.url).toString(), 302);
+      // An unknown path is a 404, not a redirect home: crawlers index nothing that isn't there.
+      return new Response("Not found", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
     }
     return new Response(Bun.file(DIST + "index.html"), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" } });
   },

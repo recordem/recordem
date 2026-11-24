@@ -1,0 +1,21 @@
+# Recordem
+
+> Open-source meeting memory. A macOS menu-bar app records calls (Google Meet, Zoom, Webex, in the browser or their apps) without a bot joining, transcribes them on the device with speaker labels, and sends them to a server that owns meetings, transcripts, notes and calendars. Every client (web portal, CLI, MCP server, SDKs) is a thin layer over one OpenAPI contract. Free for solo use; self-hostable (server AGPL-3.0, recorder and packages MIT).
+
+## Use it from an agent
+
+- [MCP server](https://mcp.recordem.dev/mcp): streamable HTTP, OAuth 2.1 protected resource ([metadata](https://mcp.recordem.dev/.well-known/oauth-protected-resource)). Tools to search meetings, read transcripts and notes.
+- [Agent skill](https://github.com/recordem/recordem/tree/main/skills): `npx skills add recordem/recordem` teaches an agent the `recordem` CLI.
+- [CLI](https://github.com/recordem/recordem/tree/main/packages/cli): `recordem` signs in with the browser, then searches, lists meetings, prints transcripts and notes.
+
+## Build on it
+
+- [OpenAPI spec](https://api.recordem.dev/v1/openapi.json): the REST API at https://api.recordem.dev/v1, every route clients may call.
+- [TypeScript SDK](https://github.com/recordem/recordem/tree/main/packages/sdk): `@recordem/sdk` on npm, a typed method per operation, webhook verification.
+- [Desktop SDK](https://github.com/recordem/recordem/tree/main/packages/desktop-sdk): `@recordem/desktop-sdk`, record calls from your own Node or Electron app with the same engine.
+
+## Run it
+
+- [Download for Mac](https://github.com/recordem/recordem/releases/latest): Apple silicon, macOS 14.4 or later.
+- [Source and docs](https://github.com/recordem/recordem#readme): self-hosting with Docker Compose (Postgres and Redis).
+- [Web app](https://app.recordem.dev): calendar, meeting pages, live transcript.

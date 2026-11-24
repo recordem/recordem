@@ -1,0 +1,5 @@
+# Everyone, search engines and AI agents alike, is welcome to read the landing page.
+User-agent: *
+Allow: /
+
+Sitemap: https://recordem.dev/sitemap.xml

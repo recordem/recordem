@@ -25,7 +25,10 @@ RUN RECORDEM_DESKTOP_SKIP_DOWNLOAD=1 bun install --frozen-lockfile
 COPY packages packages
 COPY apps/web apps/web
 COPY apps/site apps/site
-RUN cd apps/site && bun run build
+# Umami for recordem.dev: empty website id = no tracker (the default for self-hosting).
+ARG UMAMI_WEBSITE_ID=
+ARG UMAMI_SRC=https://analytics.rklosowski.com/umami
+RUN cd apps/site && UMAMI_WEBSITE_ID=$UMAMI_WEBSITE_ID UMAMI_SRC=$UMAMI_SRC bun run build
 RUN cd apps/web && AUTH_URL=$AUTH_URL API_URL=$API_URL VITE_API_BASE=$API_URL VITE_TOKEN_URL=$AUTH_URL/api/auth/oauth2/token bunx vite build
 
 FROM oven/bun:1.3.11
